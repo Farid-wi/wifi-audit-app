@@ -7,6 +7,9 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,7 +20,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,10 +38,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,8 +52,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -73,6 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -82,6 +90,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.RoomBounds
 import com.wifiaudit.app.domain.model.RoomType
+import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
 import com.wifiaudit.app.presentation.theme.AppColors
@@ -89,7 +98,9 @@ import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
 import com.wifiaudit.app.presentation.theme.AppType
 import java.io.File
-import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun PlanCaptureScreen(
@@ -123,6 +134,13 @@ fun PlanCaptureScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
+    if (uiState.showSaveDialog) {
+        SavePlanDialog(
+            onDismiss = viewModel::dismissSaveDialog,
+            onConfirm = viewModel::savePlan
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -134,15 +152,20 @@ fun PlanCaptureScreen(
         when (uiState.step) {
             PlanStep.OPTION_PICKER ->
                 OptionPickerStep(
+                    savedPlans       = uiState.savedPlans,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
-                    onPhotoSelected  = viewModel::onPhotoOptionSelected
+                    onPhotoSelected  = viewModel::onPhotoOptionSelected,
+                    onLoadPlan       = viewModel::loadSavedPlan,
+                    onDeletePlan     = viewModel::deleteSavedPlan
                 )
 
             PlanStep.CANVAS_BUILDER ->
                 CanvasBuilderStep(
-                    rooms    = uiState.editableRooms,
-                    onUpdate = viewModel::onCanvasRoomsConfirmed,
-                    onConfirm = {
+                    rooms       = uiState.editableRooms,
+                    planSaved   = uiState.planSaved,
+                    onUpdate    = viewModel::onCanvasRoomsConfirmed,
+                    onSavePlan  = viewModel::showSaveDialog,
+                    onConfirm   = {
                         auditCreationViewModel.setPlanImagePath(
                             path  = "",
                             rooms = uiState.editableRooms
@@ -170,27 +193,98 @@ fun PlanCaptureScreen(
     }
 }
 
+// ─── Dialog : saisie du nom du plan ──────────────────────────────────────────
+
+@Composable
+private fun SavePlanDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title   = { Text("Enregistrer ce plan", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        text    = {
+            OutlinedTextField(
+                value         = name,
+                onValueChange = { name = it },
+                placeholder   = { Text("Nom du plan", style = AppType.BodyPrimary, color = AppColors.TextMeta) },
+                singleLine    = true,
+                shape         = AppShape.Medium,
+                modifier      = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (name.isNotBlank()) onConfirm(name)
+                })
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick  = { onConfirm(name) },
+                enabled  = name.isNotBlank(),
+                shape    = AppShape.Pill,
+                colors   = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+            }
+        },
+        containerColor = AppColors.Surface,
+        shape = AppShape.Large
+    )
+}
+
 // ─── Option picker ────────────────────────────────────────────────────────────
 
 @Composable
 private fun OptionPickerStep(
+    savedPlans: List<SavedPlan>,
     onCanvasSelected: () -> Unit,
-    onPhotoSelected:  () -> Unit
+    onPhotoSelected:  () -> Unit,
+    onLoadPlan:       (SavedPlan) -> Unit,
+    onDeletePlan:     (String) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(AppSpacing.XXL),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.LG)
     ) {
         Spacer(Modifier.height(AppSpacing.Section))
-        Text("Créez votre plan", style = AppType.SectionTitle, color = AppColors.TextPrimary)
-        Spacer(Modifier.height(AppSpacing.MD))
+
+        if (savedPlans.isNotEmpty()) {
+            Text("Mes plans enregistrés", style = AppType.SectionTitle, color = AppColors.TextPrimary)
+            Spacer(Modifier.height(AppSpacing.XS))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD),
+                contentPadding = PaddingValues(horizontal = 2.dp)
+            ) {
+                items(savedPlans, key = { it.id }) { plan ->
+                    SavedPlanCard(
+                        plan     = plan,
+                        onLoad   = { onLoadPlan(plan) },
+                        onDelete = { onDeletePlan(plan.id) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(AppSpacing.MD))
+        }
+
+        Text("Nouveau plan", style = AppType.SectionTitle, color = AppColors.TextPrimary)
         Text(
             "Choisissez comment vous voulez créer le plan de votre logement.",
             style = AppType.BodyPrimary, color = AppColors.TextMuted
         )
-        Spacer(Modifier.height(AppSpacing.XL))
+        Spacer(Modifier.height(AppSpacing.SM))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -211,6 +305,64 @@ private fun OptionPickerStep(
                 modifier    = Modifier.weight(1f)
             )
         }
+    }
+}
+
+@Composable
+private fun SavedPlanCard(
+    plan: SavedPlan,
+    onLoad: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dateStr = remember(plan.createdAt) {
+        SimpleDateFormat("dd MMM", Locale.FRENCH).format(Date(plan.createdAt))
+    }
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .background(AppColors.Surface, AppShape.Large)
+            .border(1.dp, AppColors.BorderSoft, AppShape.Large)
+            .clickable(onClick = onLoad)
+            .padding(AppSpacing.MD),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.XS)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(AppColors.Accent.copy(alpha = 0.10f), AppShape.Medium),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.GridView, null,
+                    tint = AppColors.Accent, modifier = Modifier.size(16.dp)
+                )
+            }
+            IconButton(
+                onClick  = onDelete,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    Icons.Outlined.Close, "Supprimer",
+                    tint = AppColors.TextMuted, modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+        Text(
+            plan.name,
+            style    = AppType.BodyEmphasis,
+            color    = AppColors.TextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            "${plan.rooms.size} pièce${if (plan.rooms.size > 1) "s" else ""}  ·  $dateStr",
+            style = AppType.ControlLabel, color = AppColors.TextMuted
+        )
     }
 }
 
@@ -246,7 +398,6 @@ private fun PlanOptionCard(
 
 // ─── Canvas builder ───────────────────────────────────────────────────────────
 
-// Slots de placement initial — les 6 premiers sans chevauchement
 private val ROOM_SLOTS = listOf(
     RoomBounds(0.03f, 0.03f, 0.47f, 0.33f),
     RoomBounds(0.53f, 0.03f, 0.97f, 0.33f),
@@ -261,7 +412,9 @@ private enum class Corner { TL, TR, BL, BR }
 @Composable
 private fun CanvasBuilderStep(
     rooms: List<CanvasRoom>,
+    planSaved: Boolean,
     onUpdate: (List<CanvasRoom>) -> Unit,
+    onSavePlan: () -> Unit,
     onConfirm: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -315,7 +468,6 @@ private fun CanvasBuilderStep(
 
             Spacer(Modifier.height(AppSpacing.MD))
 
-            // Padding de 14dp = espace pour les poignées de coin sans clip
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -336,8 +488,44 @@ private fun CanvasBuilderStep(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG)
+                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
         ) {
+            AnimatedVisibility(visible = planSaved, enter = fadeIn(), exit = fadeOut()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.CheckCircle, null,
+                        tint = AppColors.SignalGood, modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(AppSpacing.XS))
+                    Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
+                }
+            }
+
+            OutlinedButton(
+                onClick  = onSavePlan,
+                enabled  = rooms.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+                shape    = AppShape.Pill,
+                border   = androidx.compose.foundation.BorderStroke(1.dp, if (rooms.isNotEmpty()) AppColors.Accent else AppColors.BorderSoft)
+            ) {
+                Icon(
+                    Icons.Outlined.BookmarkBorder, null,
+                    tint = if (rooms.isNotEmpty()) AppColors.Accent else AppColors.TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(AppSpacing.XS))
+                Text(
+                    "Enregistrer ce plan",
+                    style = AppType.BodyEmphasis,
+                    color = if (rooms.isNotEmpty()) AppColors.Accent else AppColors.TextMuted
+                )
+            }
+
             Button(
                 onClick   = onConfirm,
                 enabled   = rooms.isNotEmpty(),
@@ -368,8 +556,6 @@ private fun RoomCanvas(
     var renameText  by remember { mutableStateOf("") }
     val density     = LocalDensity.current
 
-    // rememberUpdatedState → les handlers de geste lisent toujours la dernière valeur
-    // SANS recréer le bloc pointerInput (évite l'interruption du drag en cours)
     val latestRooms    = rememberUpdatedState(rooms)
     val latestOnUpdate = rememberUpdatedState(onUpdate)
 
@@ -377,7 +563,6 @@ private fun RoomCanvas(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
             .pointerInput(Unit) {
-                // Tap sur fond vide → désélectionner
                 detectTapGestures { offset ->
                     if (canvasSize == IntSize.Zero) return@detectTapGestures
                     val cx = offset.x / canvasSize.width
@@ -389,7 +574,6 @@ private fun RoomCanvas(
                 }
             }
     ) {
-        // ─── Grille ──────────────────────────────────────────────────────────
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val step = size.width / 10f
             val gridColor = Color(0xFFD1D1D6)
@@ -406,7 +590,6 @@ private fun RoomCanvas(
 
         if (canvasSize != IntSize.Zero) {
 
-            // ─── Corps des pièces ─────────────────────────────────────────────
             rooms.forEach { room ->
                 val isSelected = room.id == selectedId
                 val isRenaming = room.id == renamingId
@@ -424,7 +607,6 @@ private fun RoomCanvas(
                         .border(if (isSelected) 2.dp else 1.dp,
                                 if (isSelected) color else color.copy(alpha = 0.45f),
                                 AppShape.Small)
-                        // Drag → déplacer. Clé STABLE (room.id + canvasSize uniquement)
                         .pointerInput(room.id, canvasSize) {
                             detectDragGestures(
                                 onDragStart = { selectedId = room.id; renamingId = null }
@@ -440,7 +622,6 @@ private fun RoomCanvas(
                                 })
                             }
                         }
-                        // Tap simple → sélectionner | Double-tap → renommer
                         .pointerInput(room.id) {
                             detectTapGestures(
                                 onTap       = { selectedId = room.id; renamingId = null },
@@ -478,7 +659,6 @@ private fun RoomCanvas(
                 }
             }
 
-            // ─── Poignées + supprimer pour la pièce sélectionnée ─────────────
             val selected = rooms.firstOrNull { it.id == selectedId }
             if (selected != null) {
                 val color = roomTypeColor(selected.type)
@@ -488,7 +668,6 @@ private fun RoomCanvas(
                 val rPx   = (b.right  * canvasSize.width).toInt()
                 val bPx   = (b.bottom * canvasSize.height).toInt()
 
-                // ── Bouton supprimer — centre-haut, séparé des 4 coins ─────────
                 val delPx   = with(density) { 26.dp.toPx().toInt() }
                 val centerX = (lPx + rPx) / 2
                 Box(
@@ -507,7 +686,6 @@ private fun RoomCanvas(
                     Icon(Icons.Outlined.Close, null, tint = Color.White, modifier = Modifier.size(13.dp))
                 }
 
-                // ── 4 poignées de coin (zone tactile 36dp, cercle visible 14dp) ─
                 listOf(
                     Corner.TL to IntOffset(lPx, tPx),
                     Corner.TR to IntOffset(rPx, tPx),
@@ -519,7 +697,6 @@ private fun RoomCanvas(
                         modifier = Modifier
                             .offset { IntOffset(pos.x - touchPx / 2, pos.y - touchPx / 2) }
                             .size(with(density) { touchPx.toDp() })
-                            // Clé stable : selected.id + corner + canvasSize
                             .pointerInput(selected.id, corner, canvasSize) {
                                 detectDragGestures { _, d ->
                                     val r = latestRooms.value.firstOrNull { it.id == selected.id } ?: return@detectDragGestures
@@ -697,7 +874,44 @@ private fun RoomConfirmationStep(
             }
         }
 
-        Spacer(Modifier.height(AppSpacing.LG))
+        Spacer(Modifier.height(AppSpacing.MD))
+
+        AnimatedVisibility(visible = uiState.planSaved, enter = fadeIn(), exit = fadeOut()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = AppSpacing.XS),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.CheckCircle, null, tint = AppColors.SignalGood, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(AppSpacing.XS))
+                Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
+            }
+        }
+
+        OutlinedButton(
+            onClick  = viewModel::showSaveDialog,
+            enabled  = uiState.editableRooms.isNotEmpty() && !uiState.isDetecting,
+            modifier = Modifier.fillMaxWidth(),
+            shape    = AppShape.Pill,
+            border   = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.BorderSoft
+            )
+        ) {
+            Icon(
+                Icons.Outlined.BookmarkBorder, null,
+                tint = if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(AppSpacing.XS))
+            Text(
+                "Enregistrer ce plan",
+                style = AppType.BodyEmphasis,
+                color = if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.TextMuted
+            )
+        }
+
+        Spacer(Modifier.height(AppSpacing.SM))
         Button(
             onClick   = onConfirm,
             modifier  = Modifier.fillMaxWidth().padding(bottom = AppSpacing.LG),

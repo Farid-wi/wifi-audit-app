@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.RoomBounds
 import com.wifiaudit.app.domain.model.RoomType
+import com.wifiaudit.app.domain.model.SavedPlan
+import com.wifiaudit.app.domain.repository.SavedPlanRepository
 import com.wifiaudit.app.domain.usecase.DetectRoomsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,16 +27,28 @@ data class PlanCaptureUiState(
     val detectedRooms: List<CanvasRoom> = emptyList(),
     val editableRooms: List<CanvasRoom> = emptyList(),
     val isDetecting: Boolean         = false,
-    val newRoomLabel: String         = ""
+    val newRoomLabel: String         = "",
+    val savedPlans: List<SavedPlan>  = emptyList(),
+    val showSaveDialog: Boolean      = false,
+    val planSaved: Boolean           = false
 )
 
 @HiltViewModel
 class PlanCaptureViewModel @Inject constructor(
-    private val detectRoomsUseCase: DetectRoomsUseCase
+    private val detectRoomsUseCase: DetectRoomsUseCase,
+    private val savedPlanRepository: SavedPlanRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlanCaptureUiState())
     val uiState: StateFlow<PlanCaptureUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            savedPlanRepository.observeAll().collect { plans ->
+                _uiState.update { it.copy(savedPlans = plans) }
+            }
+        }
+    }
 
     // ── Navigation entre options ──────────────────────────────────────────────
 
@@ -47,6 +62,48 @@ class PlanCaptureViewModel @Inject constructor(
 
     fun onCanvasRoomsConfirmed(rooms: List<CanvasRoom>) {
         _uiState.update { it.copy(editableRooms = rooms) }
+    }
+
+    // ── Chargement d'un plan sauvegardé ───────────────────────────────────────
+
+    fun loadSavedPlan(plan: SavedPlan) {
+        _uiState.update {
+            it.copy(
+                editableRooms = plan.rooms,
+                planImagePath = plan.planImagePath.takeIf { p -> p.isNotEmpty() },
+                step          = PlanStep.CANVAS_BUILDER
+            )
+        }
+    }
+
+    // ── Sauvegarde d'un plan ──────────────────────────────────────────────────
+
+    fun showSaveDialog() {
+        _uiState.update { it.copy(showSaveDialog = true) }
+    }
+
+    fun dismissSaveDialog() {
+        _uiState.update { it.copy(showSaveDialog = false) }
+    }
+
+    fun savePlan(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val plan = SavedPlan(
+                name          = trimmed,
+                planImagePath = _uiState.value.planImagePath ?: "",
+                rooms         = _uiState.value.editableRooms
+            )
+            savedPlanRepository.save(plan)
+            _uiState.update { it.copy(showSaveDialog = false, planSaved = true) }
+            delay(2_000)
+            _uiState.update { it.copy(planSaved = false) }
+        }
+    }
+
+    fun deleteSavedPlan(planId: String) {
+        viewModelScope.launch { savedPlanRepository.delete(planId) }
     }
 
     // ── Option Photo — ML Kit ─────────────────────────────────────────────────
@@ -64,7 +121,7 @@ class PlanCaptureViewModel @Inject constructor(
                     detectedRooms = rooms,
                     editableRooms = rooms,
                     step          = if (rooms.isNotEmpty()) PlanStep.ROOM_CONFIRMATION
-                                    else PlanStep.CANVAS_BUILDER   // fallback canvas si ML Kit échoue
+                                    else PlanStep.CANVAS_BUILDER
                 )
             }
         }
