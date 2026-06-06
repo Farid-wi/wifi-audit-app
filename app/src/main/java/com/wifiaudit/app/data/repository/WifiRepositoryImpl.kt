@@ -1,20 +1,27 @@
 package com.wifiaudit.app.data.repository
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
+import com.wifiaudit.app.domain.model.ApReading
 import com.wifiaudit.app.domain.model.NeighborNetwork
 import com.wifiaudit.app.domain.repository.WifiRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+import kotlin.coroutines.resume
 
 private const val TAG = "WIFI_AUDIT"
 
@@ -51,8 +58,13 @@ class WifiRepositoryImpl @Inject constructor(
 
                     Log.d(TAG, "Mode connecté — rssi=$rssi bssid=$bssid freq=$frequency ch=$channel gw=$gatewayIp")
 
-                    @Suppress("DEPRECATION")
-                    val neighbors = wifiManager.scanResults
+                    // ── Scan FRAIS synchronisé sur la position actuelle ───────
+                    // On attend la complétion réelle du scan (broadcast), pas un délai fixe : un scan
+                    // Wi-Fi complet prend 2-4s, donc lire scanResults trop tôt renvoie le scan PRÉCÉDENT
+                    // → décalage d'un cycle entre la position physique et les données (bug du matching).
+                    val scanResults = awaitFreshScanResults()
+
+                    val neighbors = scanResults
                         .filter { it.BSSID != bssid }
                         .mapNotNull { r ->
                             val ssid = r.SSID?.trim()
@@ -61,18 +73,54 @@ class WifiRepositoryImpl @Inject constructor(
                                 frequencyToChannel(r.frequency), frequencyToBand(r.frequency))
                         }
 
-                    WifiRepository.ScanData(rssi, bssid, channel, band, gatewayIp, neighbors)
+                    // Sur Android 13+ sans ACCESS_FINE_LOCATION (mais avec NEARBY_WIFI_DEVICES),
+                    // wifiInfo.ssid retourne "<unknown ssid>" — on utilise alors targetSsid (SSID
+                    // sélectionné par l'utilisateur à l'étape 3) pour retrouver les APs dans scanResults.
+                    val connectedSsid = wifiInfo.ssid?.trim('"')
+                        ?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
+                        ?: targetSsid
+
+                    // apReadings : RSSI beacon BRUT du scan frais — un par BSSID du même SSID.
+                    // Le beacon est mesuré passivement pour CHAQUE AP → comparable entre AP (box vs répéteur)
+                    // → c'est le seul indicateur fiable de proximité physique pour le matching device↔BSSID.
+                    // NE PAS écraser par wifiInfo.rssi : ça gonflerait l'AP connecté (potentiellement distant
+                    // par roaming) et fausserait le matching.
+                    val beaconReadings = if (!connectedSsid.isNullOrEmpty()) {
+                        apReadingsForSsid(scanResults, connectedSsid)
+                    } else emptyList()
+
+                    // Garantir la présence de l'AP connecté : certains appareils l'omettent de scanResults.
+                    // On l'ajoute depuis wifiInfo (seule estimation disponible) pour que la liste soit complète.
+                    val apReadings = if (bssid.isNotEmpty() &&
+                        beaconReadings.none { it.bssid.equals(bssid, ignoreCase = true) }) {
+                        Log.w(TAG, "AP connecté $bssid absent du scan — ajout depuis wifiInfo (rssi=$rssi)")
+                        (beaconReadings + ApReading(bssid, rssi, band)).sortedByDescending { it.rssi }
+                    } else beaconReadings
+
+                    // rssiPerBand : max beacon par bande — dérivé de apReadings (cohérent avec la liste).
+                    val perBand = apReadings
+                        .groupBy { it.band }
+                        .mapValues { (_, list) -> list.maxOf { it.rssi } }
+                        .ifEmpty { mapOf(band to rssi) }
+
+                    Log.d(TAG, buildString {
+                        appendLine("connectedSsid=$connectedSsid  connectedBssid=$bssid (lien=$rssi dBm $band)")
+                        appendLine("rssiPerBand=$perBand")
+                        if (apReadings.isNotEmpty()) {
+                            appendLine("APs du réseau (${apReadings.size}) — RSSI beacon brut :")
+                            apReadings.forEach { ap ->
+                                val marker = if (ap.bssid.equals(bssid, ignoreCase = true)) " ← connecté" else ""
+                                appendLine("  ${ap.bssid}  ${ap.band.padEnd(6)}  ${ap.rssi} dBm$marker")
+                            }
+                        }
+                    })
+
+                    WifiRepository.ScanData(rssi, bssid, channel, band, gatewayIp, neighbors, perBand, apReadings, connectedBssid = bssid)
 
                 } else {
                     // ── Mode passif (non connecté) — lecture des scanResults ──
-                    // Demande un scan frais; Android 9+ limite à 4/2min mais ça reste utile
-                    @Suppress("DEPRECATION")
-                    val started = wifiManager.startScan()
-                    Log.d(TAG, "startScan demandé — accepté=$started")
-                    if (started) delay(1500) // attendre la complétion
-
-                    @Suppress("DEPRECATION")
-                    val results = wifiManager.scanResults
+                    // Scan frais synchronisé sur la complétion réelle (voir awaitFreshScanResults).
+                    val results = awaitFreshScanResults()
                     if (results.isEmpty()) {
                         throw IllegalStateException(
                             "Aucun réseau Wi-Fi détecté. Rapprochez-vous de votre box."
@@ -101,7 +149,26 @@ class WifiRepositoryImpl @Inject constructor(
                                 frequencyToChannel(r.frequency), frequencyToBand(r.frequency))
                         }
 
-                    WifiRepository.ScanData(target.level, bssid, channel, band, null, neighbors)
+                    val targetSsidClean = targetSsid ?: target.SSID?.trim('"')
+                    val apReadings = if (!targetSsidClean.isNullOrEmpty()) {
+                        apReadingsForSsid(results, targetSsidClean)
+                    } else emptyList()
+                    val perBand = apReadings
+                        .groupBy { it.band }
+                        .mapValues { (_, list) -> list.maxOf { it.rssi } }
+                        .ifEmpty { mapOf(band to target.level) }
+
+                    Log.d(TAG, buildString {
+                        appendLine("Mode passif rssiPerBand=$perBand")
+                        if (apReadings.isNotEmpty()) {
+                            appendLine("APs du réseau (${apReadings.size}) :")
+                            apReadings.forEach { ap ->
+                                appendLine("  ${ap.bssid}  ${ap.band.padEnd(6)}  ${ap.rssi} dBm")
+                            }
+                        }
+                    })
+
+                    WifiRepository.ScanData(target.level, bssid, channel, band, null, neighbors, perBand, apReadings)
                 }
             }
         }
@@ -155,9 +222,84 @@ class WifiRepositoryImpl @Inject constructor(
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    /**
+     * Déclenche un scan et SUSPEND jusqu'à ce que les résultats de CE scan soient réellement
+     * disponibles, via le broadcast [WifiManager.SCAN_RESULTS_AVAILABLE_ACTION].
+     *
+     * Pourquoi pas un simple delay() : un scan Wi-Fi complet (tous canaux 2.4/5/6 GHz) prend 2 à 4s.
+     * Lire scanResults après un délai fixe trop court renvoie le scan PRÉCÉDENT — donc des données
+     * correspondant à la position antérieure de l'utilisateur (décalage d'un cycle), ce qui fausse
+     * le RSSI affiché ET le matching device↔BSSID.
+     *
+     * Si le scan est throttlé (Android 9+ : 4 scans / 2 min, startScan renvoie false) ou si le
+     * broadcast n'arrive pas dans [timeoutMs], on retombe sur le dernier cache disponible.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun awaitFreshScanResults(timeoutMs: Long = 6000): List<ScanResult> {
+        val fresh = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<List<ScanResult>> { cont ->
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(c: Context, intent: Intent) {
+                        val updated = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, true)
+                        runCatching { context.unregisterReceiver(this) }
+                        if (cont.isActive) {
+                            @Suppress("DEPRECATION")
+                            cont.resume(if (updated) wifiManager.scanResults else emptyList())
+                        }
+                    }
+                }
+                registerScanReceiver(receiver)
+                cont.invokeOnCancellation { runCatching { context.unregisterReceiver(receiver) } }
+
+                @Suppress("DEPRECATION")
+                val started = wifiManager.startScan()
+                Log.d(TAG, "startScan déclenché — accepté=$started, attente complétion réelle…")
+                if (!started) {
+                    // Throttlé : aucun broadcast de scan frais ne viendra → on rend la main (fallback cache)
+                    runCatching { context.unregisterReceiver(receiver) }
+                    if (cont.isActive) cont.resume(emptyList())
+                }
+            }
+        }
+        if (!fresh.isNullOrEmpty()) {
+            Log.d(TAG, "Scan frais reçu — ${fresh.size} APs")
+            return fresh
+        }
+        @Suppress("DEPRECATION")
+        return wifiManager.scanResults.also {
+            Log.w(TAG, "Scan frais indisponible (timeout/throttle) — fallback cache (${it.size} APs)")
+        }
+    }
+
+    /** Enregistre le receiver de scan (RECEIVER_NOT_EXPORTED requis sur Android 13+). */
+    private fun registerScanReceiver(receiver: BroadcastReceiver) {
+        val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            context.registerReceiver(receiver, filter)
+        }
+    }
+
+    /**
+     * Retourne un [ApReading] par AP visible du [ssid] dans [scanResults], trié par RSSI décroissant.
+     * Cela inclut tous les BSSIDs du réseau (box + répéteurs + éventuels autres nœuds mesh).
+     */
+    private fun apReadingsForSsid(
+        scanResults: List<android.net.wifi.ScanResult>,
+        ssid: String
+    ): List<ApReading> {
+        val clean = ssid.trim('"').trim()
+        return scanResults
+            .filter { r -> r.SSID?.trim('"')?.trim() == clean }
+            .map { r -> ApReading(r.BSSID, r.level, frequencyToBand(r.frequency)) }
+            .sortedByDescending { it.rssi }
+    }
+
     private fun frequencyToBand(freq: Int): String = when {
         freq < 3000  -> "2.4GHz"
-        freq < 6000  -> "5GHz"
+        freq < 5925  -> "5GHz"   // 6GHz commence à 5925 MHz (ch.1 = 5955 MHz)
         else         -> "6GHz"
     }
 

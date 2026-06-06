@@ -9,7 +9,7 @@ import com.wifiaudit.app.data.local.entity.MeasurementEntity
 
 @Database(
     entities = [AuditEntity::class, MeasurementEntity::class],
-    version = 2,
+    version = 6,
     exportSchema = false
 )
 abstract class WifiAuditDatabase : RoomDatabase() {

@@ -1,5 +1,6 @@
 package com.wifiaudit.app.domain.repository
 
+import com.wifiaudit.app.domain.model.ApReading
 import com.wifiaudit.app.domain.model.NeighborNetwork
 
 interface WifiRepository {
@@ -11,7 +12,13 @@ interface WifiRepository {
         val channel: Int,
         val band: String,
         val gatewayIp: String?,
-        val neighbors: List<NeighborNetwork>
+        val neighbors: List<NeighborNetwork>,
+        /** RSSI mesuré par bande pour le même SSID : {"2.4GHz":-62, "5GHz":-55}. */
+        val rssiPerBand: Map<String, Int> = emptyMap(),
+        /** Un enregistrement par AP visible du même SSID (BSSID + RSSI + bande), RSSI brut du scan. */
+        val apReadings: List<ApReading> = emptyList(),
+        /** BSSID de l'AP auquel le téléphone est actuellement connecté (vide si masqué ou mode passif). */
+        val connectedBssid: String = ""
     )
 
     /** Réseau visible dans les environs. */

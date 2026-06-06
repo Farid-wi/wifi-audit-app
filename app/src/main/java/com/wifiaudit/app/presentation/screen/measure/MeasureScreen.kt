@@ -3,6 +3,7 @@ package com.wifiaudit.app.presentation.screen.measure
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -11,6 +12,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,7 +33,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Router
+import androidx.compose.material.icons.outlined.SettingsInputAntenna
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +69,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
+import com.wifiaudit.app.domain.model.Position
+import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.RoomType
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.presentation.theme.AppColors
@@ -90,6 +98,10 @@ fun MeasureScreen(
     }
     androidx.compose.runtime.LaunchedEffect(creationState.rooms) {
         viewModel.setRooms(creationState.rooms)
+    }
+    // Initialise la file guidée (une seule fois) avec les appareils placés
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.setDevices(creationState.gatewayPosition, creationState.repeaterPositions)
     }
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -130,21 +142,48 @@ fun MeasureScreen(
             StepProgressBar(currentStep = 4, totalSteps = 5)
 
             MeasureHeader(
-                count = uiState.measurementCount,
-                modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
+                count         = uiState.measurementCount,
+                isGuidedPhase = uiState.guidedDevice != null,
+                modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
             )
+
+            // ─── Bannière de mesure guidée ────────────────────────────────
+            AnimatedVisibility(
+                visible = uiState.guidedDevice != null,
+                enter = slideInVertically { -it } + fadeIn(),
+                exit  = slideOutVertically { -it } + fadeOut()
+            ) {
+                uiState.guidedDevice?.let { device ->
+                    GuidedBanner(
+                        device   = device,
+                        modifier = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
+                    )
+                }
+            }
 
             // ─── Plan interactif ──────────────────────────────────────────
             Box(modifier = Modifier.weight(1f)) {
                 InteractivePlanView(
-                    planImagePath   = uiState.planImagePath ?: "",
-                    rooms           = creationState.rooms,
-                    measurements    = uiState.measurements,
-                    pendingPosition = uiState.pendingPosition,
-                    isLoading       = uiState.isLoading,
-                    onTap           = { x, y -> viewModel.selectPosition(x, y) },
-                    modifier        = Modifier.fillMaxSize()
+                    planImagePath      = uiState.planImagePath ?: "",
+                    rooms              = creationState.rooms,
+                    measurements       = uiState.measurements,
+                    pendingPosition    = uiState.pendingPosition,
+                    isLoading          = uiState.isLoading,
+                    onTap              = { x, y -> viewModel.selectPosition(x, y) },
+                    gatewayPosition    = creationState.gatewayPosition,
+                    repeaterPositions  = creationState.repeaterPositions,
+                    guidedDeviceId     = uiState.guidedDevice?.deviceId,
+                    modifier           = Modifier.fillMaxSize()
                 )
+
+                // Overlay « ne bougez pas » pendant le scan (2-4s) : message + radar animé,
+                // bloque les interactions pour éviter un déplacement ou un tap accidentel.
+                if (uiState.isLoading) {
+                    MeasuringOverlay(
+                        deviceLabel = uiState.guidedDevice?.label,
+                        modifier    = Modifier.matchParentSize()
+                    )
+                }
             }
 
             // ─── Bouton terminer ──────────────────────────────────────────
@@ -203,10 +242,10 @@ fun StepProgressBar(currentStep: Int, totalSteps: Int, modifier: Modifier = Modi
 // ─── En-tête avec compteur ────────────────────────────────────────────────────
 
 @Composable
-private fun MeasureHeader(count: Int, modifier: Modifier = Modifier) {
+private fun MeasureHeader(count: Int, isGuidedPhase: Boolean, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(
-            text = "Déplacez-vous dans chaque pièce",
+            text = if (isGuidedPhase) "Calibrage des appareils" else "Déplacez-vous dans chaque pièce",
             style = AppType.CardTitle,
             color = AppColors.TextPrimary
         )
@@ -236,6 +275,9 @@ private fun InteractivePlanView(
     pendingPosition: Pair<Float, Float>?,
     isLoading: Boolean,
     onTap: (x: Float, y: Float) -> Unit,
+    gatewayPosition: Position? = null,
+    repeaterPositions: List<RepeaterPosition> = emptyList(),
+    guidedDeviceId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val bitmap = remember(planImagePath) {
@@ -309,6 +351,28 @@ private fun InteractivePlanView(
                 imageSize = imageSize,
                 density = density
             )
+        }
+
+        // Icônes des appareils sur le plan (aide au positionnement)
+        if (imageSize != IntSize.Zero) {
+            gatewayPosition?.let { pos ->
+                DevicePin(
+                    x = pos.x, y = pos.y,
+                    icon = Icons.Outlined.Router,
+                    color = AppColors.Accent,
+                    isHighlighted = guidedDeviceId == "gateway",
+                    imageSize = imageSize, density = density
+                )
+            }
+            repeaterPositions.forEach { rep ->
+                DevicePin(
+                    x = rep.position.x, y = rep.position.y,
+                    icon = Icons.Outlined.SettingsInputAntenna,
+                    color = AppColors.SignalFair,
+                    isHighlighted = guidedDeviceId == rep.id,
+                    imageSize = imageSize, density = density
+                )
+            }
         }
     }
 }
@@ -385,6 +449,176 @@ private fun PendingPositionDot(
             )
             .border(2.dp, Color.White, AppShape.Circle)
     )
+}
+
+// ─── Bannière de mesure guidée ───────────────────────────────────────────────
+
+@Composable
+private fun GuidedBanner(device: GuidedDeviceInfo, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(AppColors.Accent.copy(alpha = 0.10f), AppShape.Medium)
+            .border(1.dp, AppColors.Accent.copy(alpha = 0.25f), AppShape.Medium)
+            .padding(horizontal = AppSpacing.LG, vertical = AppSpacing.MD),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+    ) {
+        Icon(
+            imageVector = if (device.isGateway) Icons.Outlined.Router
+                          else Icons.Outlined.SettingsInputAntenna,
+            contentDescription = null,
+            tint = AppColors.Accent,
+            modifier = Modifier.size(22.dp)
+        )
+        Column {
+            Text(
+                text  = "Approchez-vous de ${device.label}",
+                style = AppType.BodyEmphasis,
+                color = AppColors.TextPrimary
+            )
+            Text(
+                text  = "Puis appuyez sur \"Mesurer ici\"",
+                style = AppType.ControlLabel,
+                color = AppColors.TextSecondary
+            )
+        }
+    }
+}
+
+// ─── Overlay « ne bougez pas » pendant la mesure ─────────────────────────────
+
+@Composable
+private fun MeasuringOverlay(deviceLabel: String?, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(AppColors.Background.copy(alpha = 0.88f))
+            // Capture tous les gestes : empêche tap / zoom / déplacement pendant le scan
+            .pointerInput(Unit) { detectTapGestures { } },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            RadarPulse()
+            Spacer(Modifier.height(AppSpacing.XXL))
+            Text(
+                text  = "Restez immobile",
+                style = AppType.CardTitle,
+                color = AppColors.TextPrimary
+            )
+            Spacer(Modifier.height(AppSpacing.XS))
+            Text(
+                text = if (deviceLabel != null)
+                    "Mesure du signal près de $deviceLabel…"
+                else
+                    "Mesure du signal en cours…",
+                style = AppType.BodyPrimary,
+                color = AppColors.TextSecondary
+            )
+            Spacer(Modifier.height(AppSpacing.XS))
+            Text(
+                text  = "Ne déplacez pas le téléphone",
+                style = AppType.ControlLabel,
+                color = AppColors.TextMuted
+            )
+        }
+    }
+}
+
+/** Anneaux concentriques qui s'étendent en boucle (effet radar) autour d'une pastille Wi-Fi. */
+@Composable
+private fun RadarPulse() {
+    val transition = rememberInfiniteTransition(label = "radar")
+    Box(
+        modifier = Modifier.size(140.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        repeat(3) { i ->
+            val progress by transition.animateFloat(
+                initialValue  = 0f,
+                targetValue   = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation  = tween(1800, delayMillis = i * 600, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "ring_$i"
+            )
+            Box(
+                modifier = Modifier
+                    .size(140.dp)
+                    .graphicsLayer {
+                        scaleX = progress
+                        scaleY = progress
+                        alpha  = 1f - progress
+                    }
+                    .border(2.dp, AppColors.Accent, AppShape.Circle)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .background(AppColors.Accent, AppShape.Circle),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Wifi,
+                contentDescription = null,
+                tint = AppColors.OnAccent,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+    }
+}
+
+// ─── Icône d'appareil sur le plan (non-interactive) ──────────────────────────
+
+@Composable
+private fun DevicePin(
+    x: Float, y: Float,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    isHighlighted: Boolean,
+    imageSize: IntSize,
+    density: androidx.compose.ui.unit.Density
+) {
+    val sizeDp  = 28.dp
+    val sizePx  = with(density) { sizeDp.toPx() }
+    val offsetX = (x * imageSize.width  - sizePx / 2).roundToInt()
+    val offsetY = (y * imageSize.height - sizePx / 2).roundToInt()
+
+    val pulseTransition = rememberInfiniteTransition(label = "device_pulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue  = 0.4f,
+        targetValue   = 1f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "device_alpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(offsetX, offsetY) }
+            .size(sizeDp)
+            .background(
+                color = if (isHighlighted) color.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.85f),
+                shape = AppShape.Circle
+            )
+            .border(
+                width = if (isHighlighted) 2.5.dp else 1.5.dp,
+                color = if (isHighlighted) color.copy(alpha = if (isHighlighted) pulseAlpha else 1f)
+                        else color.copy(alpha = 0.7f),
+                shape = AppShape.Circle
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isHighlighted) Color.White else color,
+            modifier = Modifier.size(14.dp)
+        )
+    }
 }
 
 // ─── Plan canvas (pas de photo) ───────────────────────────────────────────────
