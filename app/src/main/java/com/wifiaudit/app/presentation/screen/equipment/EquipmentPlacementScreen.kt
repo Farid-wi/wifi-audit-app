@@ -83,14 +83,6 @@ fun EquipmentPlacementScreen(
     val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
     val creationState by auditCreationViewModel.state.collectAsStateWithLifecycle()
 
-    // Pré-charge les positions si un plan a été chargé à l'étape 1
-    LaunchedEffect(Unit) {
-        viewModel.initializeFromSavedPlan(
-            gateway   = creationState.gatewayPosition,
-            repeaters = creationState.repeaterPositions
-        )
-    }
-
     if (uiState.showSaveDialog) {
         SavePlanDialog(
             onDismiss = viewModel::dismissSaveDialog,

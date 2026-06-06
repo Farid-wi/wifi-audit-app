@@ -141,13 +141,7 @@ fun PlanCaptureScreen(
                     savedPlans       = uiState.savedPlans,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
                     onPhotoSelected  = viewModel::onPhotoOptionSelected,
-                    onLoadPlan       = { plan ->
-                        viewModel.loadSavedPlan(plan)
-                        auditCreationViewModel.preloadEquipment(
-                            gateway   = plan.gatewayPosition,
-                            repeaters = plan.repeaterPositions
-                        )
-                    },
+                    onLoadPlan       = viewModel::loadSavedPlan,
                     onDeletePlan     = viewModel::deleteSavedPlan
                 )
 
