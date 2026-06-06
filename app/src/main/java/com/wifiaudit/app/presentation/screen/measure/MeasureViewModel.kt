@@ -8,6 +8,7 @@ import com.wifiaudit.app.domain.model.AuditStatus
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.Measurement
 import com.wifiaudit.app.domain.model.Position
+import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.repository.AuditRepository
 import com.wifiaudit.app.domain.usecase.RunPingUseCase
@@ -30,16 +31,27 @@ data class MeasurementPoint(
     val quality: SignalQuality
 )
 
+/** Représente l'appareil pour lequel l'utilisateur doit mesurer dans la phase guidée. */
+data class GuidedDeviceInfo(
+    val deviceId: String,   // "gateway" ou ID du répéteur
+    val label: String,      // "votre box" / "votre répéteur"
+    val isGateway: Boolean,
+    val position: Position  // position sur le plan, pour pré-sélectionner automatiquement
+)
+
 data class MeasureUiState(
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
     val measurements: List<MeasurementPoint> = emptyList(),
     val pendingPosition: Pair<Float, Float>? = null,
     val planImagePath: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    /** Non-null tant que la phase guidée est en cours (mesures calibrage). */
+    val guidedDevice: GuidedDeviceInfo? = null
 ) {
     val measurementCount: Int get() = measurements.size
-    val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS
+    /** Terminer uniquement après la phase guidée et le minimum de mesures. */
+    val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS && guidedDevice == null
 }
 
 const val MIN_MEASUREMENTS = 5
@@ -55,8 +67,11 @@ class MeasureViewModel @Inject constructor(
     private var targetSsid: String? = null
     private var rooms: List<CanvasRoom> = emptyList()
 
-    // Mesures complètes conservées en mémoire pour la sauvegarde finale
     private val fullMeasurements = mutableListOf<Measurement>()
+
+    // File d'attente de la phase guidée — chaque appareil placé génère une entrée
+    private val guidedQueue = ArrayDeque<GuidedDeviceInfo>()
+    private var guidedInitialized = false
 
     private val _uiState = MutableStateFlow(MeasureUiState())
     val uiState: StateFlow<MeasureUiState> = _uiState.asStateFlow()
@@ -73,29 +88,74 @@ class MeasureViewModel @Inject constructor(
         rooms = canvasRooms
     }
 
+    /**
+     * Initialise la file de mesures guidées depuis les appareils placés sur le plan.
+     * Appelé une seule fois au démarrage de l'écran de mesure.
+     * Ordre : box en premier, puis répéteurs.
+     */
+    fun setDevices(gatewayPos: Position?, repeaterPositions: List<RepeaterPosition>) {
+        if (guidedInitialized) return
+        guidedInitialized = true
+
+        gatewayPos?.let {
+            guidedQueue.addLast(GuidedDeviceInfo("gateway", "votre box", isGateway = true, position = it))
+        }
+        repeaterPositions.forEachIndexed { idx, rep ->
+            val label = if (repeaterPositions.size == 1) "votre répéteur"
+                        else "répéteur ${idx + 1}"
+            guidedQueue.addLast(GuidedDeviceInfo(rep.id, label, isGateway = false, position = rep.position))
+        }
+
+        val first = guidedQueue.firstOrNull()
+        Log.d(TAG, "Phase guidée initialisée — ${guidedQueue.size} appareil(s) : ${guidedQueue.map { it.deviceId }}")
+
+        _uiState.update { it.copy(
+            guidedDevice    = first,
+            // Pré-sélectionner la position du premier appareil : l'utilisateur n'a qu'à appuyer sur "Mesurer ici"
+            pendingPosition = first?.position?.let { pos -> pos.x to pos.y }
+        )}
+    }
+
     fun selectPosition(x: Float, y: Float) {
         _uiState.update { it.copy(pendingPosition = x to y, error = null) }
     }
 
     fun takeMeasurement() {
         val pos = _uiState.value.pendingPosition ?: return
+        // Capturer le device guidé AVANT le lancement de la coroutine (accès main thread)
+        val currentGuided = guidedQueue.firstOrNull()
+        val hint = currentGuided?.deviceId
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            scanWifiUseCase(pos.first, pos.second, auditId, targetSsid).fold(
+            scanWifiUseCase(pos.first, pos.second, auditId, targetSsid, deviceHint = hint).fold(
                 onSuccess = { measurement ->
-                    // Rattacher la mesure à la pièce qui la contient
                     val roomId = rooms.firstOrNull { it.bounds.contains(measurement.x, measurement.y) }?.id
-                    val measurement = measurement.copy(roomId = roomId)
-                    fullMeasurements += measurement
-                    Log.d(TAG, "Mesure #${fullMeasurements.size} ajoutée — RSSI=${measurement.rssi} dBm quality=${measurement.quality}")
+                    val finalMeasurement = measurement.copy(roomId = roomId)
+                    fullMeasurements += finalMeasurement
+
+                    // Avancer dans la file guidée après succès
+                    if (currentGuided != null) guidedQueue.removeFirst()
+                    val nextDevice = guidedQueue.firstOrNull()
+
+                    Log.d(TAG, buildString {
+                        append("Mesure #${fullMeasurements.size}")
+                        if (hint != null) append(" [guidée: $hint]")
+                        appendLine(" — RSSI=${finalMeasurement.rssi}dBm quality=${finalMeasurement.quality}")
+                        if (nextDevice != null) appendLine("  → prochaine mesure guidée : ${nextDevice.deviceId}")
+                        else if (currentGuided != null) appendLine("  → phase guidée terminée, mesures libres")
+                    })
+
                     _uiState.update { s ->
                         s.copy(
-                            isLoading       = false,
-                            pendingPosition = null,
-                            measurements    = s.measurements + MeasurementPoint(
-                                x       = measurement.x,
-                                y       = measurement.y,
-                                quality = measurement.quality
+                            isLoading    = false,
+                            guidedDevice = nextDevice,
+                            // Pré-sélectionner le prochain appareil guidé, sinon libérer la sélection
+                            pendingPosition = nextDevice?.position?.let { p -> p.x to p.y },
+                            measurements = s.measurements + MeasurementPoint(
+                                x       = finalMeasurement.x,
+                                y       = finalMeasurement.y,
+                                quality = finalMeasurement.quality
                             )
                         )
                     }
@@ -110,10 +170,6 @@ class MeasureViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Persiste l'audit complet dans Room puis appelle [onSaved].
-     * Appelé depuis l'écran juste avant la navigation vers les résultats.
-     */
     fun saveAndNavigate(creationState: AuditCreationState, onSaved: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true) }
@@ -139,7 +195,8 @@ class MeasureViewModel @Inject constructor(
                 appendLine("  pièces     : ${audit.rooms.size}")
                 appendLine("  mesures    : ${audit.measurements.size}")
                 audit.measurements.forEachIndexed { i, m ->
-                    appendLine("    [${i+1}] x=%.3f y=%.3f rssi=${m.rssi}dBm bssid=${m.bssid}".format(m.x, m.y))
+                    val hintStr = m.deviceHint?.let { " hint=$it" } ?: ""
+                    appendLine("    [${i+1}] x=%.3f y=%.3f rssi=${m.rssi}dBm bssid=${m.bssid}$hintStr".format(m.x, m.y))
                 }
             })
 

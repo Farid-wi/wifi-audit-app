@@ -26,8 +26,12 @@ data class MeasurementEntity(
     val rssi: Int,
     val bssid: String,
     val channel: Int,
-    val band: String,           // "2.4GHz" | "5GHz" | "6GHz"
+    val band: String,               // "2.4GHz" | "5GHz" | "6GHz"
     val pingGatewayMs: Int,
     val pingInternetMs: Int,
-    val neighborsJson: String = "[]"  // List<NeighborNetwork> sérialisée
+    val neighborsJson: String = "[]",     // List<NeighborNetwork> sérialisée
+    val rssiPerBandJson: String = "{}",  // Map<String, Int> sérialisée
+    val apReadingsJson: String = "[]",   // List<ApReading> sérialisée
+    val deviceHint: String? = null,      // "gateway" | repeater ID | null
+    val connectedBssid: String = ""      // AP auquel le téléphone était connecté (vide si masqué)
 )

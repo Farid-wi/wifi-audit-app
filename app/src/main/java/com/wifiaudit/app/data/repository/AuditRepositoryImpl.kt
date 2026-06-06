@@ -17,6 +17,7 @@ import com.wifiaudit.app.data.remote.dto.MeasurementDto
 import com.wifiaudit.app.data.remote.dto.NeighborNetworkDto
 import com.wifiaudit.app.data.remote.dto.PositionDto
 import com.wifiaudit.app.data.remote.dto.RepeaterPositionDto
+import com.wifiaudit.app.domain.model.ApReading
 import com.wifiaudit.app.domain.model.Audit
 import com.wifiaudit.app.domain.model.AuditStatus
 import com.wifiaudit.app.domain.model.AuditSummary
@@ -110,7 +111,9 @@ class AuditRepositoryImpl @Inject constructor(
     }
 
     private fun MeasurementEntity.toDomain(): Measurement {
-        val neighborType = object : TypeToken<List<NeighborNetwork>>() {}.type
+        val neighborType   = object : TypeToken<List<NeighborNetwork>>() {}.type
+        val perBandType    = object : TypeToken<Map<String, Int>>() {}.type
+        val apReadingType  = object : TypeToken<List<ApReading>>() {}.type
         return Measurement(
             id             = id,
             auditId        = auditId,
@@ -121,6 +124,10 @@ class AuditRepositoryImpl @Inject constructor(
             bssid          = bssid,
             channel        = channel,
             band           = band,
+            rssiPerBand    = gson.fromJson(rssiPerBandJson, perBandType) ?: emptyMap(),
+            apReadings     = gson.fromJson(apReadingsJson, apReadingType) ?: emptyList(),
+            deviceHint     = deviceHint,
+            connectedBssid = connectedBssid,
             pingGatewayMs  = pingGatewayMs,
             pingInternetMs = pingInternetMs,
             neighbors      = gson.fromJson(neighborsJson, neighborType) ?: emptyList()
@@ -143,18 +150,22 @@ class AuditRepositoryImpl @Inject constructor(
     )
 
     private fun Measurement.toEntity(auditId: String) = MeasurementEntity(
-        id             = id,
-        auditId        = auditId,
-        roomId         = roomId,
-        x              = x,
-        y              = y,
-        rssi           = rssi,
-        bssid          = bssid,
-        channel        = channel,
-        band           = band,
-        pingGatewayMs  = pingGatewayMs,
-        pingInternetMs = pingInternetMs,
-        neighborsJson  = gson.toJson(neighbors)
+        id               = id,
+        auditId          = auditId,
+        roomId           = roomId,
+        x                = x,
+        y                = y,
+        rssi             = rssi,
+        bssid            = bssid,
+        channel          = channel,
+        band             = band,
+        pingGatewayMs    = pingGatewayMs,
+        pingInternetMs   = pingInternetMs,
+        neighborsJson    = gson.toJson(neighbors),
+        rssiPerBandJson  = gson.toJson(rssiPerBand),
+        apReadingsJson   = gson.toJson(apReadings),
+        deviceHint       = deviceHint,
+        connectedBssid   = connectedBssid
     )
 
     // ─── Mapper Domain → Payload réseau ──────────────────────────────────────

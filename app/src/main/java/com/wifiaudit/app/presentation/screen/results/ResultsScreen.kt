@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +32,8 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,6 +46,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -109,6 +115,17 @@ fun ResultsScreen(
             )
             Spacer(Modifier.height(AppSpacing.LG))
 
+            // ─── Sélecteur de bande ───────────────────────────────────────
+            if (uiState.availableBands.size > 1) {
+                BandSelector(
+                    availableBands = uiState.availableBands,
+                    selectedBand   = uiState.selectedBand,
+                    onBandSelected = viewModel::selectBand,
+                    modifier       = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(AppSpacing.MD))
+            }
+
             // ─── Heatmap ──────────────────────────────────────────────────
             PlanWithHeatmap(
                 planImagePath      = uiState.planImagePath,
@@ -117,6 +134,8 @@ fun ResultsScreen(
                 measurementDots    = uiState.measurementDots,
                 gatewayPosition    = uiState.gatewayPosition,
                 repeaterPositions  = uiState.repeaterPositions,
+                selectedDeviceId   = uiState.selectedDeviceId,
+                onDeviceClick      = viewModel::selectDevice,
                 modifier           = Modifier
                     .fillMaxWidth()
                     .aspectRatio(4f / 3f)
@@ -201,6 +220,8 @@ private fun PlanWithHeatmap(
     measurementDots: List<MeasurementDotInfo>,
     gatewayPosition: com.wifiaudit.app.domain.model.Position?,
     repeaterPositions: List<com.wifiaudit.app.domain.model.RepeaterPosition>,
+    selectedDeviceId: String?,
+    onDeviceClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val bitmap = remember(planImagePath) {
@@ -349,14 +370,26 @@ private fun PlanWithHeatmap(
                 )
             }
 
-            // ── 5. Équipements ────────────────────────────────────────────────
+            // ── 5. Équipements (cliquables pour afficher leur heatmap) ────────
             gatewayPosition?.let { gw ->
-                EquipmentPin(x = gw.x, y = gw.y, color = AppColors.Accent,
-                             icon = Icons.Outlined.Router, boxSize = boxSize, density = density)
+                EquipmentPin(
+                    x = gw.x, y = gw.y,
+                    color = AppColors.Accent,
+                    icon = Icons.Outlined.Router,
+                    boxSize = boxSize, density = density,
+                    isSelected = selectedDeviceId == "gateway",
+                    onClick = { onDeviceClick("gateway") }
+                )
             }
             repeaterPositions.forEach { rep ->
-                EquipmentPin(x = rep.position.x, y = rep.position.y, color = AppColors.SignalFair,
-                             icon = Icons.Outlined.SettingsInputAntenna, boxSize = boxSize, density = density)
+                EquipmentPin(
+                    x = rep.position.x, y = rep.position.y,
+                    color = AppColors.SignalFair,
+                    icon = Icons.Outlined.SettingsInputAntenna,
+                    boxSize = boxSize, density = density,
+                    isSelected = selectedDeviceId == rep.id,
+                    onClick = { onDeviceClick(rep.id) }
+                )
             }
         }
     }
@@ -368,21 +401,26 @@ private fun EquipmentPin(
     color: Color,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     boxSize: androidx.compose.ui.unit.IntSize,
-    density: androidx.compose.ui.unit.Density
+    density: androidx.compose.ui.unit.Density,
+    isSelected: Boolean = false,
+    onClick: () -> Unit = {}
 ) {
-    val sizeDp = 24.dp
+    val sizeDp = 32.dp
     val sizePx = with(density) { sizeDp.toPx() }
     val ox = (x * boxSize.width  - sizePx / 2).toInt()
     val oy = (y * boxSize.height - sizePx / 2).toInt()
+    val bgColor   = if (isSelected) color else Color.White.copy(alpha = 0.92f)
+    val iconColor = if (isSelected) Color.White else color
     Box(
         modifier = Modifier
             .offset { androidx.compose.ui.unit.IntOffset(ox, oy) }
             .size(sizeDp)
-            .background(Color.White.copy(alpha = 0.9f), AppShape.Circle)
-            .border(1.5.dp, color, AppShape.Circle),
+            .background(bgColor, AppShape.Circle)
+            .border(2.dp, color, AppShape.Circle)
+            .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+        Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -419,6 +457,61 @@ private fun rssiToColor(rssi: Float): Color {
         }
     }
     return RSSI_STOPS.last().second
+}
+
+// ─── Sélecteur de bande ──────────────────────────────────────────────────────
+
+@Composable
+private fun BandSelector(
+    availableBands: List<String>,
+    selectedBand: String?,
+    onBandSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM),
+        contentPadding = PaddingValues(horizontal = 0.dp)
+    ) {
+        item {
+            BandChip(
+                label    = "Toutes les bandes",
+                selected = selectedBand == null,
+                onClick  = { onBandSelected(null) }
+            )
+        }
+        items(availableBands) { band ->
+            BandChip(
+                label    = band.replace("GHz", " GHz"),
+                selected = selectedBand == band,
+                onClick  = { onBandSelected(band) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BandChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick  = onClick,
+        label    = { Text(label, style = AppType.ControlLabel) },
+        colors   = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = AppColors.Accent,
+            selectedLabelColor     = AppColors.OnAccent,
+            containerColor         = AppColors.Surface,
+            labelColor             = AppColors.TextSecondary
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled             = true,
+            selected            = selected,
+            borderColor         = AppColors.BorderSoft,
+            selectedBorderColor = AppColors.Accent,
+            borderWidth         = 1.dp,
+            selectedBorderWidth = 1.dp
+        ),
+        shape = AppShape.Pill
+    )
 }
 
 // ─── Légende heatmap ─────────────────────────────────────────────────────────
