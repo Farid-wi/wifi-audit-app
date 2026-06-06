@@ -1,6 +1,9 @@
 package com.wifiaudit.app.presentation.screen.equipment
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,22 +22,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.SettingsInputAntenna
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -43,6 +57,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -68,6 +83,29 @@ fun EquipmentPlacementScreen(
     val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
     val creationState by auditCreationViewModel.state.collectAsStateWithLifecycle()
 
+    // Pré-charge les positions si un plan a été chargé à l'étape 1
+    LaunchedEffect(Unit) {
+        viewModel.initializeFromSavedPlan(
+            gateway   = creationState.gatewayPosition,
+            repeaters = creationState.repeaterPositions
+        )
+    }
+
+    if (uiState.showSaveDialog) {
+        SavePlanDialog(
+            onDismiss = viewModel::dismissSaveDialog,
+            onConfirm = { name ->
+                viewModel.savePlan(
+                    name          = name,
+                    planImagePath = creationState.planImagePath ?: "",
+                    rooms         = creationState.rooms,
+                    gateway       = uiState.gatewayPosition!!,
+                    repeaters     = uiState.repeaterPositions
+                )
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -76,7 +114,6 @@ fun EquipmentPlacementScreen(
     ) {
         StepProgressBar(currentStep = 3, totalSteps = 5)
 
-        // En-tête contextuel selon l'étape
         Column(modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)) {
             val (title, instruction) = when {
                 uiState.gatewayPosition == null ->
@@ -91,13 +128,12 @@ fun EquipmentPlacementScreen(
             Text(instruction, style = AppType.BodyPrimary, color = AppColors.TextMuted)
         }
 
-        // Plan interactif
         Box(modifier = Modifier.weight(1f)) {
             EquipmentPlanView(
-                planImagePath   = creationState.planImagePath,
-                rooms           = creationState.rooms,
-                uiState         = uiState,
-                onTap           = { x, y ->
+                planImagePath = creationState.planImagePath,
+                rooms         = creationState.rooms,
+                uiState       = uiState,
+                onTap         = { x, y ->
                     when {
                         uiState.gatewayPosition == null -> viewModel.placeGateway(x, y)
                         uiState.repeaterConfirmed       -> viewModel.addRepeater(x, y)
@@ -107,22 +143,48 @@ fun EquipmentPlacementScreen(
             )
         }
 
-        // Boutons contextuels
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
         ) {
+            // Bouton "Enregistrer ce plan" disponible dès que la GW est placée
+            if (uiState.gatewayPosition != null) {
+                AnimatedVisibility(visible = uiState.planSaved, enter = fadeIn(), exit = fadeOut()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null,
+                             tint = AppColors.SignalGood, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(AppSpacing.XS))
+                        Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
+                    }
+                }
+                OutlinedButton(
+                    onClick  = viewModel::showSaveDialog,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape    = AppShape.Pill,
+                    border   = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Accent)
+                ) {
+                    Icon(Icons.Outlined.BookmarkBorder, null,
+                         tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(AppSpacing.XS))
+                    Text("Enregistrer ce plan", style = AppType.BodyEmphasis, color = AppColors.Accent)
+                }
+            }
+
             when {
-                uiState.gatewayPosition == null -> {} // tap sur le plan suffit
+                uiState.gatewayPosition == null -> {}
 
                 !uiState.repeaterConfirmed -> {
                     Button(
-                        onClick = viewModel::confirmHasRepeater,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = AppShape.Pill,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                        onClick   = viewModel::confirmHasRepeater,
+                        modifier  = Modifier.fillMaxWidth(),
+                        shape     = AppShape.Pill,
+                        colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
                         Text("Oui, j'ai un répéteur", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
@@ -153,9 +215,9 @@ fun EquipmentPlacementScreen(
                             }
                             onNext()
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = AppShape.Pill,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                        modifier  = Modifier.fillMaxWidth(),
+                        shape     = AppShape.Pill,
+                        colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
                         Text("Continuer", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
@@ -164,6 +226,51 @@ fun EquipmentPlacementScreen(
             }
         }
     }
+}
+
+// ─── Dialog : saisie du nom du plan ──────────────────────────────────────────
+
+@Composable
+private fun SavePlanDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title   = { Text("Enregistrer ce plan", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        text    = {
+            OutlinedTextField(
+                value           = name,
+                onValueChange   = { name = it },
+                placeholder     = { Text("Nom du plan", style = AppType.BodyPrimary, color = AppColors.TextMeta) },
+                singleLine      = true,
+                shape           = AppShape.Medium,
+                modifier        = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (name.isNotBlank()) onConfirm(name) })
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick   = { onConfirm(name) },
+                enabled   = name.isNotBlank(),
+                shape     = AppShape.Pill,
+                colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+            }
+        },
+        containerColor = AppColors.Surface,
+        shape          = AppShape.Large
+    )
 }
 
 // ─── Vue du plan avec équipements ────────────────────────────────────────────
@@ -206,30 +313,22 @@ private fun EquipmentPlanView(
             .onSizeChanged { planSize = it }
     ) {
         when {
-            // Option B : photo disponible
             bitmap != null ->
                 Image(bitmap = bitmap, contentDescription = "Plan",
                       contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-
-            // Option A : plan canvas — dessiner les pièces
             rooms.isNotEmpty() ->
                 CanvasRoomsPlan(rooms = rooms, modifier = Modifier.fillMaxSize())
-
-            // Fallback
             else ->
                 Box(Modifier.fillMaxSize().background(AppColors.Surface),
                     contentAlignment = Alignment.Center) {
-                    Text("Aucun plan disponible",
-                         style = AppType.BodyPrimary, color = AppColors.TextMuted)
+                    Text("Aucun plan disponible", style = AppType.BodyPrimary, color = AppColors.TextMuted)
                 }
         }
 
-        // Icône gateway
         uiState.gatewayPosition?.let { (gx, gy) ->
             EquipmentIcon(x = gx, y = gy, type = EquipmentType.GATEWAY,
                           imageSize = planSize, density = density)
         }
-        // Icônes répéteurs
         uiState.repeaterPositions.forEach { (rx, ry) ->
             EquipmentIcon(x = rx, y = ry, type = EquipmentType.REPEATER,
                           imageSize = planSize, density = density)
@@ -237,7 +336,6 @@ private fun EquipmentPlanView(
     }
 }
 
-/** Rend les pièces du canvas comme fond de plan (utilisé quand pas de photo). */
 @Composable
 private fun CanvasRoomsPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modifier) {
     var size by remember { mutableStateOf(IntSize.Zero) }
@@ -296,9 +394,9 @@ private fun EquipmentIcon(
     val oy = (y * imageSize.height - sizePx / 2).roundToInt()
 
     val (icon, color) = when (type) {
-        EquipmentType.GATEWAY   -> Icons.Outlined.Router             to AppColors.Accent
+        EquipmentType.GATEWAY   -> Icons.Outlined.Router              to AppColors.Accent
         EquipmentType.REPEATER  -> Icons.Outlined.SettingsInputAntenna to AppColors.SignalFair
-        EquipmentType.MESH_NODE -> Icons.Outlined.Hub                to AppColors.SignalGood
+        EquipmentType.MESH_NODE -> Icons.Outlined.Hub                 to AppColors.SignalGood
     }
 
     Box(

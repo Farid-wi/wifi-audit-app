@@ -11,7 +11,7 @@ import com.wifiaudit.app.data.local.entity.SavedPlanEntity
 
 @Database(
     entities = [AuditEntity::class, MeasurementEntity::class, SavedPlanEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class WifiAuditDatabase : RoomDatabase() {

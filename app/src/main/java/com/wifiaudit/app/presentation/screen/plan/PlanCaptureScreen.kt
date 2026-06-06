@@ -7,9 +7,6 @@ import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,13 +35,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,10 +46,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -90,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.RoomBounds
 import com.wifiaudit.app.domain.model.RoomType
+import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
@@ -134,13 +127,6 @@ fun PlanCaptureScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    if (uiState.showSaveDialog) {
-        SavePlanDialog(
-            onDismiss = viewModel::dismissSaveDialog,
-            onConfirm = viewModel::savePlan
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -155,17 +141,21 @@ fun PlanCaptureScreen(
                     savedPlans       = uiState.savedPlans,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
                     onPhotoSelected  = viewModel::onPhotoOptionSelected,
-                    onLoadPlan       = viewModel::loadSavedPlan,
+                    onLoadPlan       = { plan ->
+                        viewModel.loadSavedPlan(plan)
+                        auditCreationViewModel.preloadEquipment(
+                            gateway   = plan.gatewayPosition,
+                            repeaters = plan.repeaterPositions
+                        )
+                    },
                     onDeletePlan     = viewModel::deleteSavedPlan
                 )
 
             PlanStep.CANVAS_BUILDER ->
                 CanvasBuilderStep(
-                    rooms       = uiState.editableRooms,
-                    planSaved   = uiState.planSaved,
-                    onUpdate    = viewModel::onCanvasRoomsConfirmed,
-                    onSavePlan  = viewModel::showSaveDialog,
-                    onConfirm   = {
+                    rooms     = uiState.editableRooms,
+                    onUpdate  = viewModel::onCanvasRoomsConfirmed,
+                    onConfirm = {
                         auditCreationViewModel.setPlanImagePath(
                             path  = "",
                             rooms = uiState.editableRooms
@@ -191,55 +181,6 @@ fun PlanCaptureScreen(
                 )
         }
     }
-}
-
-// ─── Dialog : saisie du nom du plan ──────────────────────────────────────────
-
-@Composable
-private fun SavePlanDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title   = { Text("Enregistrer ce plan", style = AppType.CardTitle, color = AppColors.TextPrimary) },
-        text    = {
-            OutlinedTextField(
-                value         = name,
-                onValueChange = { name = it },
-                placeholder   = { Text("Nom du plan", style = AppType.BodyPrimary, color = AppColors.TextMeta) },
-                singleLine    = true,
-                shape         = AppShape.Medium,
-                modifier      = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = {
-                    if (name.isNotBlank()) onConfirm(name)
-                })
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick  = { onConfirm(name) },
-                enabled  = name.isNotBlank(),
-                shape    = AppShape.Pill,
-                colors   = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
-                elevation = ButtonDefaults.buttonElevation(0.dp)
-            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
-            }
-        },
-        containerColor = AppColors.Surface,
-        shape = AppShape.Large
-    )
 }
 
 // ─── Option picker ────────────────────────────────────────────────────────────
@@ -412,9 +353,7 @@ private enum class Corner { TL, TR, BL, BR }
 @Composable
 private fun CanvasBuilderStep(
     rooms: List<CanvasRoom>,
-    planSaved: Boolean,
     onUpdate: (List<CanvasRoom>) -> Unit,
-    onSavePlan: () -> Unit,
     onConfirm: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -488,44 +427,8 @@ private fun CanvasBuilderStep(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
+                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG)
         ) {
-            AnimatedVisibility(visible = planSaved, enter = fadeIn(), exit = fadeOut()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Outlined.CheckCircle, null,
-                        tint = AppColors.SignalGood, modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(AppSpacing.XS))
-                    Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
-                }
-            }
-
-            OutlinedButton(
-                onClick  = onSavePlan,
-                enabled  = rooms.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-                shape    = AppShape.Pill,
-                border   = androidx.compose.foundation.BorderStroke(1.dp, if (rooms.isNotEmpty()) AppColors.Accent else AppColors.BorderSoft)
-            ) {
-                Icon(
-                    Icons.Outlined.BookmarkBorder, null,
-                    tint = if (rooms.isNotEmpty()) AppColors.Accent else AppColors.TextMuted,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(Modifier.width(AppSpacing.XS))
-                Text(
-                    "Enregistrer ce plan",
-                    style = AppType.BodyEmphasis,
-                    color = if (rooms.isNotEmpty()) AppColors.Accent else AppColors.TextMuted
-                )
-            }
-
             Button(
                 onClick   = onConfirm,
                 enabled   = rooms.isNotEmpty(),
@@ -875,43 +778,6 @@ private fun RoomConfirmationStep(
         }
 
         Spacer(Modifier.height(AppSpacing.MD))
-
-        AnimatedVisibility(visible = uiState.planSaved, enter = fadeIn(), exit = fadeOut()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = AppSpacing.XS),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Outlined.CheckCircle, null, tint = AppColors.SignalGood, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(AppSpacing.XS))
-                Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
-            }
-        }
-
-        OutlinedButton(
-            onClick  = viewModel::showSaveDialog,
-            enabled  = uiState.editableRooms.isNotEmpty() && !uiState.isDetecting,
-            modifier = Modifier.fillMaxWidth(),
-            shape    = AppShape.Pill,
-            border   = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.BorderSoft
-            )
-        ) {
-            Icon(
-                Icons.Outlined.BookmarkBorder, null,
-                tint = if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.TextMuted,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(Modifier.width(AppSpacing.XS))
-            Text(
-                "Enregistrer ce plan",
-                style = AppType.BodyEmphasis,
-                color = if (uiState.editableRooms.isNotEmpty() && !uiState.isDetecting) AppColors.Accent else AppColors.TextMuted
-            )
-        }
-
-        Spacer(Modifier.height(AppSpacing.SM))
         Button(
             onClick   = onConfirm,
             modifier  = Modifier.fillMaxWidth().padding(bottom = AppSpacing.LG),

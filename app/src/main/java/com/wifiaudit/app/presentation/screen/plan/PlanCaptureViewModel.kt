@@ -10,7 +10,6 @@ import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.domain.repository.SavedPlanRepository
 import com.wifiaudit.app.domain.usecase.DetectRoomsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,15 +21,13 @@ import javax.inject.Inject
 enum class PlanStep { OPTION_PICKER, CANVAS_BUILDER, PHOTO_PREVIEW, ROOM_CONFIRMATION }
 
 data class PlanCaptureUiState(
-    val step: PlanStep               = PlanStep.OPTION_PICKER,
-    val planImagePath: String?       = null,
+    val step: PlanStep                  = PlanStep.OPTION_PICKER,
+    val planImagePath: String?          = null,
     val detectedRooms: List<CanvasRoom> = emptyList(),
     val editableRooms: List<CanvasRoom> = emptyList(),
-    val isDetecting: Boolean         = false,
-    val newRoomLabel: String         = "",
-    val savedPlans: List<SavedPlan>  = emptyList(),
-    val showSaveDialog: Boolean      = false,
-    val planSaved: Boolean           = false
+    val isDetecting: Boolean            = false,
+    val newRoomLabel: String            = "",
+    val savedPlans: List<SavedPlan>     = emptyList()
 )
 
 @HiltViewModel
@@ -73,32 +70,6 @@ class PlanCaptureViewModel @Inject constructor(
                 planImagePath = plan.planImagePath.takeIf { p -> p.isNotEmpty() },
                 step          = PlanStep.CANVAS_BUILDER
             )
-        }
-    }
-
-    // ── Sauvegarde d'un plan ──────────────────────────────────────────────────
-
-    fun showSaveDialog() {
-        _uiState.update { it.copy(showSaveDialog = true) }
-    }
-
-    fun dismissSaveDialog() {
-        _uiState.update { it.copy(showSaveDialog = false) }
-    }
-
-    fun savePlan(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch {
-            val plan = SavedPlan(
-                name          = trimmed,
-                planImagePath = _uiState.value.planImagePath ?: "",
-                rooms         = _uiState.value.editableRooms
-            )
-            savedPlanRepository.save(plan)
-            _uiState.update { it.copy(showSaveDialog = false, planSaved = true) }
-            delay(2_000)
-            _uiState.update { it.copy(planSaved = false) }
         }
     }
 

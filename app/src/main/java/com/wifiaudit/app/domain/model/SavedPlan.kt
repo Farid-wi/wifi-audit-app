@@ -7,5 +7,7 @@ data class SavedPlan(
     val name: String,
     val planImagePath: String = "",
     val rooms: List<CanvasRoom> = emptyList(),
+    val gatewayPosition: Position? = null,
+    val repeaterPositions: List<RepeaterPosition> = emptyList(),
     val createdAt: Long = System.currentTimeMillis()
 )

@@ -48,6 +48,10 @@ class AuditCreationViewModel @Inject constructor() : ViewModel() {
     fun setSsid(ssid: String) {
         _state.update { it.copy(ssid = ssid) }
     }
+
+    fun preloadEquipment(gateway: Position?, repeaters: List<RepeaterPosition>) {
+        _state.update { it.copy(gatewayPosition = gateway, repeaterPositions = repeaters) }
+    }
 }
 
 data class AuditCreationState(
