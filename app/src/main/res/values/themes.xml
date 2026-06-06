@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Thème XML minimal — le theming réel se fait dans WifiAuditTheme (Compose) -->
+    <style name="Theme.WifiAuditApp" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
