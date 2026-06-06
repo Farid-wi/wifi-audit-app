@@ -3,6 +3,7 @@ package com.wifiaudit.app.presentation.screen.measure
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -174,6 +175,15 @@ fun MeasureScreen(
                     guidedDeviceId     = uiState.guidedDevice?.deviceId,
                     modifier           = Modifier.fillMaxSize()
                 )
+
+                // Overlay « ne bougez pas » pendant le scan (2-4s) : message + radar animé,
+                // bloque les interactions pour éviter un déplacement ou un tap accidentel.
+                if (uiState.isLoading) {
+                    MeasuringOverlay(
+                        deviceLabel = uiState.guidedDevice?.label,
+                        modifier    = Modifier.matchParentSize()
+                    )
+                }
             }
 
             // ─── Bouton terminer ──────────────────────────────────────────
@@ -471,6 +481,89 @@ private fun GuidedBanner(device: GuidedDeviceInfo, modifier: Modifier = Modifier
                 text  = "Puis appuyez sur \"Mesurer ici\"",
                 style = AppType.ControlLabel,
                 color = AppColors.TextSecondary
+            )
+        }
+    }
+}
+
+// ─── Overlay « ne bougez pas » pendant la mesure ─────────────────────────────
+
+@Composable
+private fun MeasuringOverlay(deviceLabel: String?, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(AppColors.Background.copy(alpha = 0.88f))
+            // Capture tous les gestes : empêche tap / zoom / déplacement pendant le scan
+            .pointerInput(Unit) { detectTapGestures { } },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            RadarPulse()
+            Spacer(Modifier.height(AppSpacing.XXL))
+            Text(
+                text  = "Restez immobile",
+                style = AppType.CardTitle,
+                color = AppColors.TextPrimary
+            )
+            Spacer(Modifier.height(AppSpacing.XS))
+            Text(
+                text = if (deviceLabel != null)
+                    "Mesure du signal près de $deviceLabel…"
+                else
+                    "Mesure du signal en cours…",
+                style = AppType.BodyPrimary,
+                color = AppColors.TextSecondary
+            )
+            Spacer(Modifier.height(AppSpacing.XS))
+            Text(
+                text  = "Ne déplacez pas le téléphone",
+                style = AppType.ControlLabel,
+                color = AppColors.TextMuted
+            )
+        }
+    }
+}
+
+/** Anneaux concentriques qui s'étendent en boucle (effet radar) autour d'une pastille Wi-Fi. */
+@Composable
+private fun RadarPulse() {
+    val transition = rememberInfiniteTransition(label = "radar")
+    Box(
+        modifier = Modifier.size(140.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        repeat(3) { i ->
+            val progress by transition.animateFloat(
+                initialValue  = 0f,
+                targetValue   = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation  = tween(1800, delayMillis = i * 600, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "ring_$i"
+            )
+            Box(
+                modifier = Modifier
+                    .size(140.dp)
+                    .graphicsLayer {
+                        scaleX = progress
+                        scaleY = progress
+                        alpha  = 1f - progress
+                    }
+                    .border(2.dp, AppColors.Accent, AppShape.Circle)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .background(AppColors.Accent, AppShape.Circle),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Wifi,
+                contentDescription = null,
+                tint = AppColors.OnAccent,
+                modifier = Modifier.size(32.dp)
             )
         }
     }
