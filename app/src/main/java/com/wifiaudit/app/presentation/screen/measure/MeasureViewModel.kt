@@ -1,5 +1,6 @@
 package com.wifiaudit.app.presentation.screen.measure
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,10 +12,12 @@ import com.wifiaudit.app.domain.model.Position
 import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.repository.AuditRepository
+import com.wifiaudit.app.domain.usecase.GetScanCooldownUseCase
 import com.wifiaudit.app.domain.usecase.RunPingUseCase
 import com.wifiaudit.app.domain.usecase.ScanWifiUseCase
 import com.wifiaudit.app.presentation.AuditCreationState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.ceil
 
 private const val TAG = "WIFI_AUDIT"
 
@@ -47,19 +51,28 @@ data class MeasureUiState(
     val planImagePath: String? = null,
     val error: String? = null,
     /** Non-null tant que la phase guidée est en cours (mesures calibrage). */
-    val guidedDevice: GuidedDeviceInfo? = null
+    val guidedDevice: GuidedDeviceInfo? = null,
+    /** Secondes à patienter avant de pouvoir mesurer (throttle Android). 0 = prêt. */
+    val scanCooldownSeconds: Int = 0
 ) {
     val measurementCount: Int get() = measurements.size
     /** Terminer uniquement après la phase guidée et le minimum de mesures. */
     val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS && guidedDevice == null
+    /** Le bouton « Mesurer ici » est actionnable. */
+    val canMeasure: Boolean get() = pendingPosition != null && !isLoading && scanCooldownSeconds == 0
 }
 
 const val MIN_MEASUREMENTS = 5
+
+// Cadence délibérée entre deux mesures : ~20 s d'espacement des scans + ~10 s de déplacement.
+// Reste sous le throttle Android (4 scans / 2 min = 1 toutes les 30 s) → scans toujours frais.
+const val MEASUREMENT_INTERVAL_MS = 30_000L
 
 @HiltViewModel
 class MeasureViewModel @Inject constructor(
     private val scanWifiUseCase: ScanWifiUseCase,
     private val runPingUseCase: RunPingUseCase,
+    private val getScanCooldownUseCase: GetScanCooldownUseCase,
     private val auditRepository: AuditRepository
 ) : ViewModel() {
 
@@ -69,12 +82,33 @@ class MeasureViewModel @Inject constructor(
 
     private val fullMeasurements = mutableListOf<Measurement>()
 
+    // Instant (elapsedRealtime) de la dernière mesure terminée — pour la cadence délibérée.
+    private var lastMeasurementAt: Long = 0L
+
     // File d'attente de la phase guidée — chaque appareil placé génère une entrée
     private val guidedQueue = ArrayDeque<GuidedDeviceInfo>()
     private var guidedInitialized = false
 
     private val _uiState = MutableStateFlow(MeasureUiState())
     val uiState: StateFlow<MeasureUiState> = _uiState.asStateFlow()
+
+    init {
+        // Ticker : compte à rebours « feu vert » = max(cadence délibérée, throttle Android).
+        viewModelScope.launch {
+            while (true) {
+                val throttleMs = getScanCooldownUseCase()
+                val deliberateMs = if (lastMeasurementAt == 0L) 0L
+                    else (MEASUREMENT_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastMeasurementAt))
+                        .coerceAtLeast(0L)
+                val remainingMs = maxOf(throttleMs, deliberateMs)
+                val seconds = if (remainingMs <= 0) 0 else ceil(remainingMs / 1000.0).toInt()
+                if (seconds != _uiState.value.scanCooldownSeconds) {
+                    _uiState.update { it.copy(scanCooldownSeconds = seconds) }
+                }
+                delay(500)
+            }
+        }
+    }
 
     fun setPlanImagePath(path: String) {
         _uiState.update { it.copy(planImagePath = path) }
@@ -121,6 +155,7 @@ class MeasureViewModel @Inject constructor(
     }
 
     fun takeMeasurement() {
+        if (!_uiState.value.canMeasure) return
         val pos = _uiState.value.pendingPosition ?: return
         // Capturer le device guidé AVANT le lancement de la coroutine (accès main thread)
         val currentGuided = guidedQueue.firstOrNull()
@@ -133,6 +168,9 @@ class MeasureViewModel @Inject constructor(
                     val roomId = rooms.firstOrNull { it.bounds.contains(measurement.x, measurement.y) }?.id
                     val finalMeasurement = measurement.copy(roomId = roomId)
                     fullMeasurements += finalMeasurement
+
+                    // Démarrer la cadence délibérée (feu rouge → vert au bout de l'intervalle)
+                    lastMeasurementAt = SystemClock.elapsedRealtime()
 
                     // Avancer dans la file guidée après succès
                     if (currentGuided != null) guidedQueue.removeFirst()
@@ -152,6 +190,8 @@ class MeasureViewModel @Inject constructor(
                             guidedDevice = nextDevice,
                             // Pré-sélectionner le prochain appareil guidé, sinon libérer la sélection
                             pendingPosition = nextDevice?.position?.let { p -> p.x to p.y },
+                            // Feu rouge immédiat (le ticker prendra le relais pour décrémenter)
+                            scanCooldownSeconds = (MEASUREMENT_INTERVAL_MS / 1000).toInt(),
                             measurements = s.measurements + MeasurementPoint(
                                 x       = finalMeasurement.x,
                                 y       = finalMeasurement.y,

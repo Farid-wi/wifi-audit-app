@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DirectionsWalk
+import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.SettingsInputAntenna
 import androidx.compose.material.icons.outlined.Wifi
@@ -122,13 +124,25 @@ fun MeasureScreen(
                 enter = fadeIn() + scaleIn(),
                 exit = fadeOut()
             ) {
+                val waiting = uiState.scanCooldownSeconds > 0
                 ExtendedFloatingActionButton(
-                    onClick = viewModel::takeMeasurement,
+                    onClick = { if (!waiting) viewModel.takeMeasurement() },
                     shape = AppShape.Pill,
-                    containerColor = AppColors.Accent,
-                    contentColor = AppColors.OnAccent,
-                    icon = { Icon(Icons.Outlined.Wifi, contentDescription = null) },
-                    text = { Text("Mesurer ici", style = AppType.BodyEmphasis) }
+                    containerColor = if (waiting) AppColors.SignalFair else AppColors.SignalGood,
+                    contentColor   = Color.White,
+                    icon = {
+                        Icon(
+                            imageVector = if (waiting) Icons.Outlined.HourglassEmpty else Icons.Outlined.Wifi,
+                            contentDescription = null
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (waiting) "Mesure possible dans ${uiState.scanCooldownSeconds} s"
+                                   else "Mesurer ici",
+                            style = AppType.BodyEmphasis
+                        )
+                    }
                 )
             }
         }
@@ -147,18 +161,19 @@ fun MeasureScreen(
                 modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
             )
 
-            // ─── Bannière de mesure guidée ────────────────────────────────
+            // ─── Bannière d'étape (guidage + feu vert) ────────────────────
+            val showBanner = uiState.guidedDevice != null ||
+                (uiState.scanCooldownSeconds > 0 && uiState.measurementCount > 0)
             AnimatedVisibility(
-                visible = uiState.guidedDevice != null,
+                visible = showBanner,
                 enter = slideInVertically { -it } + fadeIn(),
                 exit  = slideOutVertically { -it } + fadeOut()
             ) {
-                uiState.guidedDevice?.let { device ->
-                    GuidedBanner(
-                        device   = device,
-                        modifier = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
-                    )
-                }
+                StepGuidanceBanner(
+                    guidedDevice    = uiState.guidedDevice,
+                    cooldownSeconds = uiState.scanCooldownSeconds,
+                    modifier = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
+                )
             }
 
             // ─── Plan interactif ──────────────────────────────────────────
@@ -451,10 +466,25 @@ private fun PendingPositionDot(
     )
 }
 
-// ─── Bannière de mesure guidée ───────────────────────────────────────────────
+// ─── Bannière d'étape : guidage appareil + feu vert (cadence entre mesures) ──
 
 @Composable
-private fun GuidedBanner(device: GuidedDeviceInfo, modifier: Modifier = Modifier) {
+private fun StepGuidanceBanner(
+    guidedDevice: GuidedDeviceInfo?,
+    cooldownSeconds: Int,
+    modifier: Modifier = Modifier
+) {
+    val waiting = cooldownSeconds > 0
+    val title = when {
+        guidedDevice != null && waiting -> "Rejoignez ${guidedDevice.label}"
+        guidedDevice != null            -> "Approchez-vous de ${guidedDevice.label}"
+        waiting                         -> "Déplacez-vous au point suivant"
+        else                            -> "Choisissez un point sur le plan"
+    }
+    val statusText = if (waiting) "Mesure possible dans $cooldownSeconds s — restez en mouvement"
+                     else "C'est le moment — appuyez sur \"Mesurer ici\""
+    val dotColor = if (waiting) AppColors.SignalFair else AppColors.SignalGood
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -465,23 +495,35 @@ private fun GuidedBanner(device: GuidedDeviceInfo, modifier: Modifier = Modifier
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
     ) {
         Icon(
-            imageVector = if (device.isGateway) Icons.Outlined.Router
-                          else Icons.Outlined.SettingsInputAntenna,
+            imageVector = when {
+                guidedDevice?.isGateway == true -> Icons.Outlined.Router
+                guidedDevice != null            -> Icons.Outlined.SettingsInputAntenna
+                else                            -> Icons.Outlined.DirectionsWalk
+            },
             contentDescription = null,
             tint = AppColors.Accent,
             modifier = Modifier.size(22.dp)
         )
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text  = "Approchez-vous de ${device.label}",
+                text  = title,
                 style = AppType.BodyEmphasis,
                 color = AppColors.TextPrimary
             )
-            Text(
-                text  = "Puis appuyez sur \"Mesurer ici\"",
-                style = AppType.ControlLabel,
-                color = AppColors.TextSecondary
-            )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(dotColor, AppShape.Circle)
+                )
+                Spacer(Modifier.width(AppSpacing.XS))
+                Text(
+                    text  = statusText,
+                    style = AppType.ControlLabel,
+                    color = AppColors.TextSecondary
+                )
+            }
         }
     }
 }

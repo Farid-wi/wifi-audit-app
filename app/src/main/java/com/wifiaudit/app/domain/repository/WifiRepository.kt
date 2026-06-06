@@ -29,6 +29,13 @@ interface WifiRepository {
 
     suspend fun scan(targetSsid: String? = null): Result<ScanData>
 
+    /**
+     * Millisecondes à attendre avant qu'un scan frais soit de nouveau possible (0 si dispo
+     * immédiatement). Android limite à 4 scans / 2 min ; au-delà, une mesure renverrait des
+     * données périmées. L'UI s'en sert pour désactiver le bouton de mesure avec un compte à rebours.
+     */
+    suspend fun scanCooldownRemainingMs(): Long
+
     /** Retourne tous les SSIDs visibles, dédupliqués, le connecté en premier. */
     suspend fun getVisibleNetworks(): List<VisibleNetwork>
 }

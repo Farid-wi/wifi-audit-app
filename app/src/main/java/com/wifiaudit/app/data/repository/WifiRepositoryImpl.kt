@@ -11,12 +11,14 @@ import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import com.wifiaudit.app.domain.model.ApReading
 import com.wifiaudit.app.domain.model.NeighborNetwork
 import com.wifiaudit.app.domain.repository.WifiRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -25,6 +27,10 @@ import kotlin.coroutines.resume
 
 private const val TAG = "WIFI_AUDIT"
 
+// Modèle du throttle de scan Android (foreground) : 4 scans max par fenêtre glissante de 2 min.
+private const val SCAN_THROTTLE_WINDOW_MS = 120_000L
+private const val SCAN_THROTTLE_MAX = 4
+
 class WifiRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context
 ) : WifiRepository {
@@ -32,6 +38,15 @@ class WifiRepositoryImpl @Inject constructor(
     private val wifiManager: WifiManager by lazy {
         context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     }
+
+    // Timestamp (µs depuis le boot) du scan le plus récent déjà consommé.
+    // Sert à détecter qu'un nouveau scan est réellement frais (et pas le cache renvoyé par
+    // Android quand startScan est throttlé : 4 scans / 2 min sur Android 9+).
+    private var lastScanTimestampUs: Long = 0L
+
+    // Horodatages (elapsedRealtime ms) des scans réellement acceptés, pour modéliser le throttle
+    // Android (4 scans / fenêtre glissante de 2 min) et calculer le délai avant le prochain scan.
+    private val acceptedScanTimes = ArrayDeque<Long>()
 
     private val connectivityManager: ConnectivityManager by lazy {
         context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -235,16 +250,61 @@ class WifiRepositoryImpl @Inject constructor(
      * broadcast n'arrive pas dans [timeoutMs], on retombe sur le dernier cache disponible.
      */
     @SuppressLint("MissingPermission")
-    private suspend fun awaitFreshScanResults(timeoutMs: Long = 6000): List<ScanResult> {
+    private suspend fun awaitFreshScanResults(
+        perAttemptTimeoutMs: Long = 6000,
+        maxTotalWaitMs: Long = 12000
+    ): List<ScanResult> {
+        val startedAt = SystemClock.elapsedRealtime()
+        var attempt = 0
+        var lastResults: List<ScanResult> = emptyList()
+
+        while (true) {
+            attempt++
+            val (results, confirmedFresh) = triggerScanAndAwait(perAttemptTimeoutMs)
+            lastResults = results
+            val maxTs = results.maxOfOrNull { it.timestamp } ?: 0L
+
+            // Frais si : le broadcast a confirmé de nouveaux résultats (EXTRA_RESULTS_UPDATED=true),
+            // OU le timestamp du scan a avancé depuis le dernier consommé.
+            // (Si throttlé, Android renvoie le cache → pas de confirmation + même timestamp → réessai.)
+            val isFresh = results.isNotEmpty() && (confirmedFresh || maxTs > lastScanTimestampUs)
+            if (isFresh) {
+                if (maxTs > 0L) lastScanTimestampUs = maxTs
+                Log.d(TAG, "Scan FRAIS (tentative $attempt, confirmé=$confirmedFresh) — ${results.size} APs (ts=$maxTs)")
+                return results
+            }
+
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            if (elapsed >= maxTotalWaitMs) {
+                Log.w(TAG, "Scan toujours périmé après ${elapsed}ms / $attempt tentatives " +
+                        "(throttle Android 4/2min) — utilisation du dernier disponible (ts=$maxTs)")
+                if (maxTs > 0L) lastScanTimestampUs = maxTs
+                return results
+            }
+
+            // Throttlé : la fenêtre se libère quand le plus ancien des 4 scans dépasse 2 min.
+            // On patiente puis on retente — startScan finira par être accepté.
+            Log.w(TAG, "Scan périmé (throttle, tentative $attempt) — nouvelle tentative dans 3s…")
+            delay(3000)
+        }
+    }
+
+    /**
+     * Une tentative : déclenche un scan et attend sa complétion réelle (broadcast) ou le timeout.
+     * @return (résultats, confirmedFresh) — confirmedFresh=true si le broadcast a signalé de
+     *         nouveaux résultats (EXTRA_RESULTS_UPDATED=true). Sinon les résultats sont un cache.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun triggerScanAndAwait(timeoutMs: Long): Pair<List<ScanResult>, Boolean> {
         val fresh = withTimeoutOrNull(timeoutMs) {
-            suspendCancellableCoroutine<List<ScanResult>> { cont ->
+            suspendCancellableCoroutine<List<ScanResult>?> { cont ->
                 val receiver = object : BroadcastReceiver() {
                     override fun onReceive(c: Context, intent: Intent) {
                         val updated = intent.getBooleanExtra(WifiManager.EXTRA_RESULTS_UPDATED, true)
                         runCatching { context.unregisterReceiver(this) }
                         if (cont.isActive) {
                             @Suppress("DEPRECATION")
-                            cont.resume(if (updated) wifiManager.scanResults else emptyList())
+                            cont.resume(if (updated) wifiManager.scanResults else null)
                         }
                     }
                 }
@@ -253,22 +313,38 @@ class WifiRepositoryImpl @Inject constructor(
 
                 @Suppress("DEPRECATION")
                 val started = wifiManager.startScan()
+                if (started) recordAcceptedScan()
                 Log.d(TAG, "startScan déclenché — accepté=$started, attente complétion réelle…")
                 if (!started) {
-                    // Throttlé : aucun broadcast de scan frais ne viendra → on rend la main (fallback cache)
+                    // Throttlé : aucun broadcast de scan frais ne viendra → on rend la main
                     runCatching { context.unregisterReceiver(receiver) }
-                    if (cont.isActive) cont.resume(emptyList())
+                    if (cont.isActive) cont.resume(null)
                 }
             }
         }
-        if (!fresh.isNullOrEmpty()) {
-            Log.d(TAG, "Scan frais reçu — ${fresh.size} APs")
-            return fresh
-        }
+        if (fresh != null) return fresh to true   // broadcast confirmé frais
         @Suppress("DEPRECATION")
-        return wifiManager.scanResults.also {
-            Log.w(TAG, "Scan frais indisponible (timeout/throttle) — fallback cache (${it.size} APs)")
+        return wifiManager.scanResults to false    // cache (timeout / throttle / updated=false)
+    }
+
+    /** Mémorise un scan accepté et purge ceux sortis de la fenêtre de throttle. */
+    private fun recordAcceptedScan() {
+        val now = SystemClock.elapsedRealtime()
+        acceptedScanTimes.addLast(now)
+        while (acceptedScanTimes.isNotEmpty() && now - acceptedScanTimes.first() >= SCAN_THROTTLE_WINDOW_MS) {
+            acceptedScanTimes.removeFirst()
         }
+    }
+
+    override suspend fun scanCooldownRemainingMs(): Long {
+        val now = SystemClock.elapsedRealtime()
+        while (acceptedScanTimes.isNotEmpty() && now - acceptedScanTimes.first() >= SCAN_THROTTLE_WINDOW_MS) {
+            acceptedScanTimes.removeFirst()
+        }
+        // Tant qu'on n'a pas atteint le quota, un scan est dispo immédiatement.
+        if (acceptedScanTimes.size < SCAN_THROTTLE_MAX) return 0L
+        // Sinon : le prochain créneau se libère quand le plus ancien scan sort de la fenêtre.
+        return (acceptedScanTimes.first() + SCAN_THROTTLE_WINDOW_MS - now).coerceAtLeast(0L)
     }
 
     /** Enregistre le receiver de scan (RECEIVER_NOT_EXPORTED requis sur Android 13+). */
