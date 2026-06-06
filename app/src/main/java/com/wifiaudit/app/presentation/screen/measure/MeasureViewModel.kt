@@ -64,9 +64,10 @@ data class MeasureUiState(
 
 const val MIN_MEASUREMENTS = 5
 
-// Cadence délibérée entre deux mesures : ~20 s d'espacement des scans + ~10 s de déplacement.
-// Reste sous le throttle Android (4 scans / 2 min = 1 toutes les 30 s) → scans toujours frais.
-const val MEASUREMENT_INTERVAL_MS = 30_000L
+// Cadence délibérée entre deux mesures : ~10 s d'espacement des scans + ~5 s de déplacement.
+// Au-delà de 4 mesures rapprochées, le throttle Android (4 scans / 2 min) peut prolonger
+// l'attente : le compte à rebours affiché = max(cette cadence, délai throttle réel).
+const val MEASUREMENT_INTERVAL_MS = 15_000L
 
 @HiltViewModel
 class MeasureViewModel @Inject constructor(
