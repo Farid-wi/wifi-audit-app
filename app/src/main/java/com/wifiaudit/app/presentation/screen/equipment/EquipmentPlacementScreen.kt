@@ -138,6 +138,7 @@ fun EquipmentPlacementScreen(
                                 uiState.gatewayPosition!!.first,
                                 uiState.gatewayPosition!!.second
                             )
+                            auditCreationViewModel.setRepeaters(emptyList())
                             onNext()
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -153,9 +154,7 @@ fun EquipmentPlacementScreen(
                                 uiState.gatewayPosition!!.first,
                                 uiState.gatewayPosition!!.second
                             )
-                            uiState.repeaterPositions.forEach { (x, y) ->
-                                auditCreationViewModel.addRepeater(x, y)
-                            }
+                            auditCreationViewModel.setRepeaters(uiState.repeaterPositions)
                             onNext()
                         },
                         modifier  = Modifier.fillMaxWidth(),

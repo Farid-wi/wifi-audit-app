@@ -60,7 +60,13 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
         composable(Screen.Results.route) {
             ResultsScreen(
                 onNewAudit = {
-                    navController.popBackStack(Screen.Plan.route, inclusive = false)
+                    // Le VM partagé (scope Activity) survit à la navigation → on le réinitialise.
+                    auditCreationViewModel.reset()
+                    // On recrée une destination Plan NEUVE (popUpTo inclusive) pour repartir d'un
+                    // PlanCaptureViewModel vierge — sinon l'ancien plan dessiné resterait affiché.
+                    navController.navigate(Screen.Plan.route) {
+                        popUpTo(Screen.Plan.route) { inclusive = true }
+                    }
                 }
             )
         }

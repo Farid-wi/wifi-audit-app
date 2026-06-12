@@ -25,7 +25,16 @@ class AuditCreationViewModel @Inject constructor() : ViewModel() {
     val state: StateFlow<AuditCreationState> = _state.asStateFlow()
 
     fun setPlanImagePath(path: String, rooms: List<CanvasRoom> = emptyList()) {
-        _state.update { it.copy(planImagePath = path, rooms = rooms) }
+        // Un (nouveau) plan invalide les anciennes positions d'équipements (relatives au plan) :
+        // on les efface pour éviter qu'elles réapparaissent au calibrage d'un audit suivant.
+        _state.update {
+            it.copy(
+                planImagePath     = path,
+                rooms             = rooms,
+                gatewayPosition   = null,
+                repeaterPositions = emptyList()
+            )
+        }
     }
 
     fun updateRooms(rooms: List<CanvasRoom>) {
@@ -36,21 +45,24 @@ class AuditCreationViewModel @Inject constructor() : ViewModel() {
         _state.update { it.copy(gatewayPosition = Position(x, y)) }
     }
 
-    fun addRepeater(x: Float, y: Float) {
-        val rep = RepeaterPosition(UUID.randomUUID().toString(), Position(x, y))
-        _state.update { it.copy(repeaterPositions = it.repeaterPositions + rep) }
-    }
-
-    fun removeLastRepeater() {
-        _state.update { it.copy(repeaterPositions = it.repeaterPositions.dropLast(1)) }
+    /** Remplace l'ensemble des répéteurs (jamais d'empilement entre passages sur l'écran). */
+    fun setRepeaters(positions: List<Pair<Float, Float>>) {
+        _state.update {
+            it.copy(
+                repeaterPositions = positions.map { (x, y) ->
+                    RepeaterPosition(UUID.randomUUID().toString(), Position(x, y))
+                }
+            )
+        }
     }
 
     fun setSsid(ssid: String) {
         _state.update { it.copy(ssid = ssid) }
     }
 
-    fun preloadEquipment(gateway: Position?, repeaters: List<RepeaterPosition>) {
-        _state.update { it.copy(gatewayPosition = gateway, repeaterPositions = repeaters) }
+    /** Repart de zéro pour un nouvel audit (le VM partagé survit au popBackStack). */
+    fun reset() {
+        _state.value = AuditCreationState()
     }
 }
 
