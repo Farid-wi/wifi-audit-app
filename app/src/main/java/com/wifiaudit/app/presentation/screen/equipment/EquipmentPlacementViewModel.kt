@@ -44,6 +44,11 @@ class EquipmentPlacementViewModel @Inject constructor(
         _uiState.update { it.copy(repeaterPositions = it.repeaterPositions + (x to y)) }
     }
 
+    /** Retire le dernier répéteur placé (annulation d'un tap accidentel). */
+    fun removeLastRepeater() {
+        _uiState.update { it.copy(repeaterPositions = it.repeaterPositions.dropLast(1)) }
+    }
+
     // Pré-charge les positions depuis un plan sauvegardé (appelé une seule fois à l'init de l'écran)
     fun initializeFromSavedPlan(gateway: Position?, repeaters: List<RepeaterPosition>) {
         if (_uiState.value.gatewayPosition != null) return

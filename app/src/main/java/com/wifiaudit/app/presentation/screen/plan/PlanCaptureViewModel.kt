@@ -53,6 +53,11 @@ class PlanCaptureViewModel @Inject constructor(
         _uiState.update { it.copy(step = PlanStep.CANVAS_BUILDER) }
     }
 
+    /** Retour vers le choix initial (utilisé par le bouton Retour et le geste système). */
+    fun backToPicker() {
+        _uiState.update { it.copy(step = PlanStep.OPTION_PICKER) }
+    }
+
     fun onPhotoOptionSelected() {
         _uiState.update { it.copy(step = PlanStep.PHOTO_PREVIEW) }
     }

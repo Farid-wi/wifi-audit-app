@@ -16,6 +16,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -57,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -75,6 +77,7 @@ import com.wifiaudit.app.domain.model.Position
 import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.RoomType
 import com.wifiaudit.app.domain.model.SignalQuality
+import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -86,6 +89,7 @@ import kotlin.math.roundToInt
 fun MeasureScreen(
     auditCreationViewModel: com.wifiaudit.app.presentation.AuditCreationViewModel,
     onNext: () -> Unit,
+    onBack: () -> Unit,
     viewModel: MeasureViewModel = hiltViewModel()
 ) {
     val creationState by auditCreationViewModel.state.collectAsStateWithLifecycle()
@@ -109,6 +113,25 @@ fun MeasureScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let { snackbarHost.showSnackbar(it) }
+    }
+
+    // Toast (bascule auto en mode standard, confirmation mode rapide…) → snackbar éphémère.
+    LaunchedEffect(uiState.toastMessage) {
+        uiState.toastMessage?.let {
+            snackbarHost.showSnackbar(it)
+            viewModel.consumeToast()
+        }
+    }
+
+    // Choix du mode de scan au démarrage de la session (et sur demande via la puce d'en-tête).
+    if (uiState.showScanModeDialog) {
+        ScanModeDialog(
+            fastModeAvailable = uiState.fastModeAvailable,
+            isDetecting       = uiState.isDetectingThrottle,
+            detectionMessage  = uiState.throttleDetectionMessage,
+            onChooseStandard  = viewModel::chooseStandardMode,
+            onVerifyFast      = viewModel::verifyFastMode
+        )
     }
 
     Scaffold(
@@ -153,11 +176,13 @@ fun MeasureScreen(
                 .padding(padding)
         ) {
             // ─── En-tête ──────────────────────────────────────────────────
-            StepProgressBar(currentStep = 4, totalSteps = 5)
+            StepHeader(currentStep = 4, onBack = onBack)
 
             MeasureHeader(
                 count         = uiState.measurementCount,
                 isGuidedPhase = uiState.guidedDevice != null,
+                scanMode      = uiState.scanMode,
+                onModeClick   = viewModel::openScanModeDialog,
                 modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
             )
 
@@ -196,6 +221,7 @@ fun MeasureScreen(
                 if (uiState.isLoading) {
                     MeasuringOverlay(
                         deviceLabel = uiState.guidedDevice?.label,
+                        onCancel    = viewModel::cancelMeasurement,
                         modifier    = Modifier.matchParentSize()
                     )
                 }
@@ -257,13 +283,26 @@ fun StepProgressBar(currentStep: Int, totalSteps: Int, modifier: Modifier = Modi
 // ─── En-tête avec compteur ────────────────────────────────────────────────────
 
 @Composable
-private fun MeasureHeader(count: Int, isGuidedPhase: Boolean, modifier: Modifier = Modifier) {
+private fun MeasureHeader(
+    count: Int,
+    isGuidedPhase: Boolean,
+    scanMode: com.wifiaudit.app.domain.model.ScanMode,
+    onModeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Column(modifier = modifier) {
-        Text(
-            text = if (isGuidedPhase) "Calibrage des appareils" else "Déplacez-vous dans chaque pièce",
-            style = AppType.CardTitle,
-            color = AppColors.TextPrimary
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = if (isGuidedPhase) "Calibrage des appareils" else "Déplacez-vous dans chaque pièce",
+                style = AppType.CardTitle,
+                color = AppColors.TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            ScanModeChip(scanMode = scanMode, onClick = onModeClick)
+        }
         Spacer(Modifier.height(AppSpacing.XS))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -277,6 +316,36 @@ private fun MeasureHeader(count: Int, isGuidedPhase: Boolean, modifier: Modifier
                 color = AppColors.TextMuted
             )
         }
+    }
+}
+
+/** Petite puce cliquable affichant le mode actif — rouvre le dialog de choix du mode. */
+@Composable
+private fun ScanModeChip(
+    scanMode: com.wifiaudit.app.domain.model.ScanMode,
+    onClick: () -> Unit
+) {
+    val isFast = scanMode == com.wifiaudit.app.domain.model.ScanMode.FAST
+    Row(
+        modifier = Modifier
+            .clip(AppShape.Pill)
+            .background(AppColors.Surface)
+            .border(1.dp, AppColors.BorderSoft, AppShape.Pill)
+            .clickable(onClick = onClick)
+            .padding(horizontal = AppSpacing.MD, vertical = AppSpacing.XS),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .background(if (isFast) AppColors.SignalGood else AppColors.TextMeta, AppShape.Circle)
+        )
+        Spacer(Modifier.width(AppSpacing.XS))
+        Text(
+            text = if (isFast) "Mode rapide" else "Mode standard",
+            style = AppType.ControlLabel,
+            color = AppColors.TextSecondary
+        )
     }
 }
 
@@ -531,7 +600,11 @@ private fun StepGuidanceBanner(
 // ─── Overlay « ne bougez pas » pendant la mesure ─────────────────────────────
 
 @Composable
-private fun MeasuringOverlay(deviceLabel: String?, modifier: Modifier = Modifier) {
+private fun MeasuringOverlay(
+    deviceLabel: String?,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Box(
         modifier = modifier
             .background(AppColors.Background.copy(alpha = 0.88f))
@@ -562,6 +635,11 @@ private fun MeasuringOverlay(deviceLabel: String?, modifier: Modifier = Modifier
                 style = AppType.ControlLabel,
                 color = AppColors.TextMuted
             )
+            Spacer(Modifier.height(AppSpacing.XL))
+            // Échappatoire si la mesure a été lancée par erreur.
+            androidx.compose.material3.TextButton(onClick = onCancel) {
+                Text("Annuler", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
+            }
         }
     }
 }

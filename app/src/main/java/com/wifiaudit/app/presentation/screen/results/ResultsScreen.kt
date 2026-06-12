@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material.icons.outlined.SettingsInputAntenna
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +38,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +72,7 @@ import com.wifiaudit.app.domain.model.Severity
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.model.toUserLabel
 import com.wifiaudit.app.domain.usecase.HeatmapGrid
-import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
+import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -84,13 +86,25 @@ fun ResultsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // Confirmation avant de repartir de zéro (les résultats affichés seront perdus).
+    var showNewAuditConfirm by remember { mutableStateOf(false) }
+    if (showNewAuditConfirm) {
+        NewAuditConfirmDialog(
+            onConfirm = {
+                showNewAuditConfirm = false
+                onNewAudit()
+            },
+            onDismiss = { showNewAuditConfirm = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepProgressBar(currentStep = 5, totalSteps = 5)
+        StepHeader(currentStep = 5)
 
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -198,7 +212,7 @@ fun ResultsScreen(
                 }
             }
             OutlinedButton(
-                onClick = onNewAudit,
+                onClick = { showNewAuditConfirm = true },
                 modifier = Modifier.fillMaxWidth(),
                 shape = AppShape.Pill,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent),
@@ -208,6 +222,40 @@ fun ResultsScreen(
             }
         }
     }
+}
+
+// ─── Confirmation « Nouvel audit » ────────────────────────────────────────────
+
+@Composable
+private fun NewAuditConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Démarrer un nouvel audit ?", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        text  = {
+            Text(
+                "Les résultats affichés seront effacés. Pensez à les envoyer avant si besoin.",
+                style = AppType.BodyPrimary, color = AppColors.TextMuted
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick   = onConfirm,
+                shape     = AppShape.Pill,
+                colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) { Text("Nouvel audit", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+            }
+        },
+        containerColor = AppColors.Surface,
+        shape          = AppShape.Large
+    )
 }
 
 // ─── Heatmap sur le plan ──────────────────────────────────────────────────────

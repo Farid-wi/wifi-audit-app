@@ -2,6 +2,7 @@ package com.wifiaudit.app.domain.repository
 
 import com.wifiaudit.app.domain.model.ApReading
 import com.wifiaudit.app.domain.model.NeighborNetwork
+import com.wifiaudit.app.domain.model.ScanMode
 
 interface WifiRepository {
 
@@ -38,4 +39,30 @@ interface WifiRepository {
 
     /** Retourne tous les SSIDs visibles, dédupliqués, le connecté en premier. */
     suspend fun getVisibleNetworks(): List<VisibleNetwork>
+
+    // ─── Mode de scan (cadence) ──────────────────────────────────────────────
+
+    /** Mode de scan actuellement mémorisé (défaut : [ScanMode.STANDARD]). */
+    fun getScanMode(): ScanMode
+
+    /**
+     * Mémorise le mode choisi par l'utilisateur et démarre une nouvelle session de diagnostic
+     * (remise à zéro des compteurs réussis/échoués/périmés).
+     */
+    fun setScanMode(mode: ScanMode)
+
+    /**
+     * Détection EMPIRIQUE du throttling Android : l'état du réglage « Limitation de la recherche
+     * Wi-Fi » n'est pas lisible par API. On lance 3 [android.net.wifi.WifiManager.startScan]
+     * espacés de ~5 s et on compare la fraîcheur des résultats. Si les 3 scans sont frais →
+     * throttling désactivé → le mode rapide est exploitable.
+     *
+     * @return true si le throttling semble désactivé (3 scans frais sur 3).
+     * @throws SecurityException si la permission de localisation manque.
+     * @throws IllegalStateException si la localisation système ou le Wi-Fi sont désactivés.
+     */
+    suspend fun detectThrottlingDisabled(): Boolean
+
+    /** Écrit dans les logs le résumé de la session de scan (réussis / échoués / périmés). */
+    fun logScanSessionSummary()
 }

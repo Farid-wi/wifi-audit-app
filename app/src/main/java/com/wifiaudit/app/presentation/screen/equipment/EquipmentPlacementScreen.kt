@@ -67,7 +67,7 @@ import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.EquipmentType
 import com.wifiaudit.app.domain.model.RoomType
 import com.wifiaudit.app.presentation.AuditCreationViewModel
-import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
+import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -78,6 +78,7 @@ import kotlin.math.roundToInt
 fun EquipmentPlacementScreen(
     auditCreationViewModel: AuditCreationViewModel,
     onNext: () -> Unit,
+    onBack: () -> Unit,
     viewModel: EquipmentPlacementViewModel = hiltViewModel()
 ) {
     val uiState       by viewModel.uiState.collectAsStateWithLifecycle()
@@ -104,14 +105,14 @@ fun EquipmentPlacementScreen(
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepProgressBar(currentStep = 3, totalSteps = 5)
+        StepHeader(currentStep = 2, onBack = onBack)
 
         Column(modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)) {
             val (title, instruction) = when {
                 uiState.gatewayPosition == null ->
                     "Où se trouve votre box ?" to "Appuyez sur le plan à l'endroit où elle est placée."
                 !uiState.repeaterConfirmed ->
-                    "Avez-vous un répéteur Wi-Fi ?" to "Un répéteur amplifie le signal dans les zones éloignées."
+                    "Avez-vous un répéteur Wi-Fi ?" to "Touchez à nouveau le plan pour déplacer la box. Un répéteur amplifie le signal dans les zones éloignées."
                 else ->
                     "Où est votre répéteur ?" to "Appuyez sur le plan pour le positionner."
             }
@@ -127,8 +128,9 @@ fun EquipmentPlacementScreen(
                 uiState       = uiState,
                 onTap         = { x, y ->
                     when {
-                        uiState.gatewayPosition == null -> viewModel.placeGateway(x, y)
-                        uiState.repeaterConfirmed       -> viewModel.addRepeater(x, y)
+                        // Tant que le répéteur n'est pas confirmé, un tap (re)place la box → déplaçable.
+                        !uiState.repeaterConfirmed -> viewModel.placeGateway(x, y)
+                        else                       -> viewModel.addRepeater(x, y)
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -212,7 +214,17 @@ fun EquipmentPlacementScreen(
                         colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text("Continuer", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
+                        val n = uiState.repeaterPositions.size
+                        Text(
+                            "Continuer ($n répéteur${if (n > 1) "s" else ""})",
+                            style = AppType.BodyEmphasis, color = AppColors.OnAccent
+                        )
+                    }
+                    TextButton(
+                        onClick  = viewModel::removeLastRepeater,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Retirer le dernier répéteur", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
                     }
                 }
             }

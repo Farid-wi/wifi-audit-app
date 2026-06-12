@@ -46,7 +46,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.repository.WifiRepository
 import com.wifiaudit.app.presentation.AuditCreationViewModel
-import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
+import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -56,10 +56,20 @@ import com.wifiaudit.app.presentation.theme.AppType
 fun NetworkSelectionScreen(
     auditCreationViewModel: AuditCreationViewModel,
     onNext: () -> Unit,
+    onBack: () -> Unit,
     viewModel: NetworkSelectionViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // Ouvre la page Réglages de l'app pour accorder la permission refusée définitivement.
+    fun openAppSettings() {
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            android.net.Uri.fromParts("package", context.packageName, null)
+        )
+        context.startActivity(intent)
+    }
 
     // Permissions nécessaires pour accéder aux résultats de scan Wi-Fi
     val requiredPermissions = buildList {
@@ -96,7 +106,7 @@ fun NetworkSelectionScreen(
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepProgressBar(currentStep = 3, totalSteps = 5)
+        StepHeader(currentStep = 3, onBack = onBack)
 
         Row(
             modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD),
@@ -113,7 +123,10 @@ fun NetworkSelectionScreen(
         }
 
         when {
-            uiState.permissionDenied -> PermissionDeniedMessage(modifier = Modifier.weight(1f))
+            uiState.permissionDenied -> PermissionDeniedMessage(
+                onOpenSettings = ::openAppSettings,
+                modifier = Modifier.weight(1f)
+            )
 
             uiState.isLoading -> Box(
                 Modifier.weight(1f).fillMaxWidth(),
@@ -169,7 +182,10 @@ fun NetworkSelectionScreen(
 }
 
 @Composable
-private fun PermissionDeniedMessage(modifier: Modifier = Modifier) {
+private fun PermissionDeniedMessage(
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -188,6 +204,15 @@ private fun PermissionDeniedMessage(modifier: Modifier = Modifier) {
                 color = AppColors.TextMuted,
                 textAlign = TextAlign.Center
             )
+            Spacer(Modifier.height(AppSpacing.LG))
+            Button(
+                onClick = onOpenSettings,
+                shape = AppShape.Pill,
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) {
+                Text("Ouvrir les réglages", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
+            }
         }
     }
 }

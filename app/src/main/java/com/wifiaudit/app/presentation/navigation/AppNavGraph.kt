@@ -39,19 +39,22 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
         composable(Screen.Equipment.route) {
             EquipmentPlacementScreen(
                 auditCreationViewModel = auditCreationViewModel,
-                onNext = { navController.navigate(Screen.Network.route) }
+                onNext = { navController.navigate(Screen.Network.route) },
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.Network.route) {
             NetworkSelectionScreen(
                 auditCreationViewModel = auditCreationViewModel,
-                onNext = { navController.navigate(Screen.Measure.route) }
+                onNext = { navController.navigate(Screen.Measure.route) },
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.Measure.route) {
             MeasureScreen(
                 auditCreationViewModel = auditCreationViewModel,
-                onNext = { navController.navigate(Screen.Results.route) }
+                onNext = { navController.navigate(Screen.Results.route) },
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.Results.route) {

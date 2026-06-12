@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -38,7 +39,6 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -85,7 +85,7 @@ import com.wifiaudit.app.domain.model.RoomType
 import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.presentation.AuditCreationViewModel
-import com.wifiaudit.app.presentation.screen.measure.StepProgressBar
+import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -127,20 +127,29 @@ fun PlanCaptureScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
+    // Geste système Retour : depuis une sous-étape, revenir au choix initial plutôt que de
+    // quitter l'écran Plan (sinon l'utilisateur perd son travail en cours).
+    BackHandler(enabled = uiState.step != PlanStep.OPTION_PICKER) {
+        viewModel.backToPicker()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepProgressBar(currentStep = 1, totalSteps = 5)
+        StepHeader(
+            currentStep = 1,
+            // Pas de retour depuis l'écran d'accueil ; sinon retour vers le choix initial.
+            onBack = if (uiState.step == PlanStep.OPTION_PICKER) null else viewModel::backToPicker
+        )
 
         when (uiState.step) {
             PlanStep.OPTION_PICKER ->
                 OptionPickerStep(
                     savedPlans       = uiState.savedPlans,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
-                    onPhotoSelected  = viewModel::onPhotoOptionSelected,
                     onLoadPlan       = viewModel::loadSavedPlan,
                     onDeletePlan     = viewModel::deleteSavedPlan
                 )
@@ -183,7 +192,6 @@ fun PlanCaptureScreen(
 private fun OptionPickerStep(
     savedPlans: List<SavedPlan>,
     onCanvasSelected: () -> Unit,
-    onPhotoSelected:  () -> Unit,
     onLoadPlan:       (SavedPlan) -> Unit,
     onDeletePlan:     (String) -> Unit
 ) {
@@ -216,30 +224,18 @@ private fun OptionPickerStep(
 
         Text("Nouveau plan", style = AppType.SectionTitle, color = AppColors.TextPrimary)
         Text(
-            "Choisissez comment vous voulez créer le plan de votre logement.",
+            "Créez le plan de votre logement en quelques gestes.",
             style = AppType.BodyPrimary, color = AppColors.TextMuted
         )
         Spacer(Modifier.height(AppSpacing.SM))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.LG)
-        ) {
-            PlanOptionCard(
-                title       = "Dessiner",
-                description = "Créez le plan directement dans l'app",
-                icon        = Icons.Outlined.GridView,
-                onClick     = onCanvasSelected,
-                modifier    = Modifier.weight(1f)
-            )
-            PlanOptionCard(
-                title       = "Photographier",
-                description = "Prenez en photo un croquis dessiné à la main",
-                icon        = Icons.Outlined.PhotoCamera,
-                onClick     = onPhotoSelected,
-                modifier    = Modifier.weight(1f)
-            )
-        }
+        PlanOptionCard(
+            title       = "Dessiner mon plan",
+            description = "Ajoutez vos pièces et placez-les directement dans l'app",
+            icon        = Icons.Outlined.GridView,
+            onClick     = onCanvasSelected,
+            modifier    = Modifier.fillMaxWidth()
+        )
     }
 }
 

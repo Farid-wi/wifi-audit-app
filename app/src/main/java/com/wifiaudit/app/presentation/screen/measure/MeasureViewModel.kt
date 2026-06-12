@@ -1,5 +1,6 @@
 package com.wifiaudit.app.presentation.screen.measure
 
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -10,13 +11,19 @@ import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.Measurement
 import com.wifiaudit.app.domain.model.Position
 import com.wifiaudit.app.domain.model.RepeaterPosition
+import com.wifiaudit.app.domain.model.ScanMode
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.repository.AuditRepository
+import com.wifiaudit.app.domain.usecase.DetectThrottlingUseCase
 import com.wifiaudit.app.domain.usecase.GetScanCooldownUseCase
+import com.wifiaudit.app.domain.usecase.GetScanModeUseCase
+import com.wifiaudit.app.domain.usecase.LogScanSessionSummaryUseCase
 import com.wifiaudit.app.domain.usecase.RunPingUseCase
 import com.wifiaudit.app.domain.usecase.ScanWifiUseCase
+import com.wifiaudit.app.domain.usecase.SetScanModeUseCase
 import com.wifiaudit.app.presentation.AuditCreationState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,27 +60,48 @@ data class MeasureUiState(
     /** Non-null tant que la phase guidée est en cours (mesures calibrage). */
     val guidedDevice: GuidedDeviceInfo? = null,
     /** Secondes à patienter avant de pouvoir mesurer (throttle Android). 0 = prêt. */
-    val scanCooldownSeconds: Int = 0
+    val scanCooldownSeconds: Int = 0,
+    /** Dialog de choix du mode de scan (affiché à l'entrée de l'étape Mesures + sur demande). */
+    val showScanModeDialog: Boolean = false,
+    /** Mode rapide proposé uniquement sur Android 10+. */
+    val fastModeAvailable: Boolean = false,
+    /** Mode de scan actuellement actif. */
+    val scanMode: ScanMode = ScanMode.STANDARD,
+    /** Détection empirique du throttling en cours (3 scans espacés de ~5 s). */
+    val isDetectingThrottle: Boolean = false,
+    /** Message de résultat de la détection (échec ou throttling encore actif). */
+    val throttleDetectionMessage: String? = null,
+    /** Message éphémère (toast) — ex. bascule auto en mode standard. */
+    val toastMessage: String? = null
 ) {
     val measurementCount: Int get() = measurements.size
     /** Terminer uniquement après la phase guidée et le minimum de mesures. */
     val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS && guidedDevice == null
-    /** Le bouton « Mesurer ici » est actionnable. */
-    val canMeasure: Boolean get() = pendingPosition != null && !isLoading && scanCooldownSeconds == 0
+    /** Le bouton « Mesurer ici » est actionnable (jamais pendant le choix du mode). */
+    val canMeasure: Boolean get() =
+        pendingPosition != null && !isLoading && scanCooldownSeconds == 0 && !showScanModeDialog
 }
 
 const val MIN_MEASUREMENTS = 5
 
-// Cadence délibérée entre deux mesures : ~10 s d'espacement des scans + ~5 s de déplacement.
-// Au-delà de 4 mesures rapprochées, le throttle Android (4 scans / 2 min) peut prolonger
-// l'attente : le compte à rebours affiché = max(cette cadence, délai throttle réel).
+// Cadence délibérée entre deux mesures (mode STANDARD) : ~10 s d'espacement des scans + ~5 s de
+// déplacement. Au-delà de 4 mesures rapprochées, le throttle Android (4 scans / 2 min) peut
+// prolonger l'attente : le compte à rebours affiché = max(cette cadence, délai throttle réel).
 const val MEASUREMENT_INTERVAL_MS = 15_000L
+
+// Cadence délibérée en mode RAPIDE : throttling désactivé par l'utilisateur → scans enchaînés
+// (~1 scan / 5 s, le temps d'un scan complet + un court déplacement).
+const val FAST_MEASUREMENT_INTERVAL_MS = 5_000L
 
 @HiltViewModel
 class MeasureViewModel @Inject constructor(
     private val scanWifiUseCase: ScanWifiUseCase,
     private val runPingUseCase: RunPingUseCase,
     private val getScanCooldownUseCase: GetScanCooldownUseCase,
+    private val getScanModeUseCase: GetScanModeUseCase,
+    private val setScanModeUseCase: SetScanModeUseCase,
+    private val detectThrottlingUseCase: DetectThrottlingUseCase,
+    private val logScanSessionSummaryUseCase: LogScanSessionSummaryUseCase,
     private val auditRepository: AuditRepository
 ) : ViewModel() {
 
@@ -86,6 +114,12 @@ class MeasureViewModel @Inject constructor(
     // Instant (elapsedRealtime) de la dernière mesure terminée — pour la cadence délibérée.
     private var lastMeasurementAt: Long = 0L
 
+    // Job du scan en cours — permet d'annuler une mesure lancée par erreur.
+    private var measureJob: Job? = null
+
+    // Intervalle délibéré courant entre deux mesures — dépend du mode (standard vs rapide).
+    private var intervalMs: Long = MEASUREMENT_INTERVAL_MS
+
     // File d'attente de la phase guidée — chaque appareil placé génère une entrée
     private val guidedQueue = ArrayDeque<GuidedDeviceInfo>()
     private var guidedInitialized = false
@@ -94,12 +128,24 @@ class MeasureViewModel @Inject constructor(
     val uiState: StateFlow<MeasureUiState> = _uiState.asStateFlow()
 
     init {
+        // Initialise le mode courant + disponibilité du mode rapide (Android 10+), et ouvre le
+        // dialog de choix au démarrage de la session de mesure.
+        val currentMode = getScanModeUseCase()
+        intervalMs = intervalForMode(currentMode)
+        _uiState.update {
+            it.copy(
+                scanMode           = currentMode,
+                fastModeAvailable  = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
+                showScanModeDialog = true
+            )
+        }
+
         // Ticker : compte à rebours « feu vert » = max(cadence délibérée, throttle Android).
         viewModelScope.launch {
             while (true) {
                 val throttleMs = getScanCooldownUseCase()
                 val deliberateMs = if (lastMeasurementAt == 0L) 0L
-                    else (MEASUREMENT_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastMeasurementAt))
+                    else (intervalMs - (SystemClock.elapsedRealtime() - lastMeasurementAt))
                         .coerceAtLeast(0L)
                 val remainingMs = maxOf(throttleMs, deliberateMs)
                 val seconds = if (remainingMs <= 0) 0 else ceil(remainingMs / 1000.0).toInt()
@@ -109,6 +155,92 @@ class MeasureViewModel @Inject constructor(
                 delay(500)
             }
         }
+    }
+
+    private fun intervalForMode(mode: ScanMode): Long =
+        if (mode == ScanMode.FAST) FAST_MEASUREMENT_INTERVAL_MS else MEASUREMENT_INTERVAL_MS
+
+    // ─── Choix du mode de scan ───────────────────────────────────────────────
+
+    /** Confirme le mode standard (comportement par défaut) et ferme le dialog. */
+    fun chooseStandardMode() {
+        applyMode(ScanMode.STANDARD)
+        _uiState.update { it.copy(showScanModeDialog = false, throttleDetectionMessage = null) }
+    }
+
+    /**
+     * Lance la détection empirique du throttling (3 scans espacés de ~5 s). Si le throttling est
+     * désactivé → active le mode rapide et ferme le dialog. Sinon → message explicatif, le dialog
+     * reste ouvert pour que l'utilisateur corrige le réglage et réessaie.
+     */
+    fun verifyFastMode() {
+        if (_uiState.value.isDetectingThrottle) return
+        _uiState.update { it.copy(isDetectingThrottle = true, throttleDetectionMessage = null) }
+        viewModelScope.launch {
+            detectThrottlingUseCase().fold(
+                onSuccess = { disabled ->
+                    if (disabled) {
+                        applyMode(ScanMode.FAST)
+                        _uiState.update {
+                            it.copy(
+                                isDetectingThrottle = false,
+                                showScanModeDialog = false,
+                                throttleDetectionMessage = null,
+                                toastMessage = "Mode rapide activé"
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isDetectingThrottle = false,
+                                throttleDetectionMessage =
+                                    "La limitation de recherche Wi-Fi est encore active. " +
+                                    "Vérifiez le réglage dans les options développeur puis réessayez."
+                            )
+                        }
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(
+                            isDetectingThrottle = false,
+                            throttleDetectionMessage = e.message ?: "Vérification impossible."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    /** Rouvre le dialog de choix du mode (point d'entrée « réglages » depuis l'écran Mesures). */
+    fun openScanModeDialog() {
+        _uiState.update { it.copy(showScanModeDialog = true, throttleDetectionMessage = null) }
+    }
+
+    fun consumeToast() {
+        _uiState.update { it.copy(toastMessage = null) }
+    }
+
+    private fun applyMode(mode: ScanMode) {
+        setScanModeUseCase(mode)
+        intervalMs = intervalForMode(mode)
+        _uiState.update { it.copy(scanMode = mode) }
+    }
+
+    /**
+     * Detects an engine-side FAST → STANDARD auto-fallback (the throttle was actually still active)
+     * and re-syncs the deliberate cadence. Returns a user-facing toast message, or null if nothing
+     * changed.
+     */
+    private fun detectModeFallback(): String? {
+        val previous = _uiState.value.scanMode
+        val now = getScanModeUseCase()
+        if (previous == ScanMode.FAST && now == ScanMode.STANDARD) {
+            intervalMs = intervalForMode(now)
+            return "La recherche Wi-Fi est encore limitée par votre téléphone. " +
+                   "Passage automatique en mode standard."
+        }
+        return null
     }
 
     fun setPlanImagePath(path: String) {
@@ -162,7 +294,7 @@ class MeasureViewModel @Inject constructor(
         val currentGuided = guidedQueue.firstOrNull()
         val hint = currentGuided?.deviceId
 
-        viewModelScope.launch {
+        measureJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             scanWifiUseCase(pos.first, pos.second, auditId, targetSsid, deviceHint = hint).fold(
                 onSuccess = { measurement ->
@@ -172,6 +304,10 @@ class MeasureViewModel @Inject constructor(
 
                     // Démarrer la cadence délibérée (feu rouge → vert au bout de l'intervalle)
                     lastMeasurementAt = SystemClock.elapsedRealtime()
+
+                    // Le moteur a pu basculer FAST → STANDARD si le throttling était en fait actif.
+                    // On détecte ce changement (la cadence est re-synchronisée) et on prévient l'user.
+                    val fellBackToastMsg = detectModeFallback()
 
                     // Avancer dans la file guidée après succès
                     if (currentGuided != null) guidedQueue.removeFirst()
@@ -192,7 +328,9 @@ class MeasureViewModel @Inject constructor(
                             // Pré-sélectionner le prochain appareil guidé, sinon libérer la sélection
                             pendingPosition = nextDevice?.position?.let { p -> p.x to p.y },
                             // Feu rouge immédiat (le ticker prendra le relais pour décrémenter)
-                            scanCooldownSeconds = (MEASUREMENT_INTERVAL_MS / 1000).toInt(),
+                            scanCooldownSeconds = (intervalMs / 1000).toInt(),
+                            scanMode = getScanModeUseCase(),
+                            toastMessage = fellBackToastMsg ?: s.toastMessage,
                             measurements = s.measurements + MeasurementPoint(
                                 x       = finalMeasurement.x,
                                 y       = finalMeasurement.y,
@@ -209,6 +347,15 @@ class MeasureViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    /** Annule la mesure en cours (tap accidentel) — le scan est interrompu, aucune donnée gardée. */
+    fun cancelMeasurement() {
+        if (measureJob?.isActive != true) return
+        measureJob?.cancel()
+        measureJob = null
+        Log.d(TAG, "Mesure annulée par l'utilisateur")
+        _uiState.update { it.copy(isLoading = false) }
     }
 
     fun saveAndNavigate(creationState: AuditCreationState, onSaved: () -> Unit) {
@@ -240,6 +387,9 @@ class MeasureViewModel @Inject constructor(
                     appendLine("    [${i+1}] x=%.3f y=%.3f rssi=${m.rssi}dBm bssid=${m.bssid}$hintStr".format(m.x, m.y))
                 }
             })
+
+            // Résumé de diagnostic de la session de scan (réussis / échoués / périmés) — tag WifiDiagScan.
+            logScanSessionSummaryUseCase()
 
             auditRepository.saveAudit(audit)
             _uiState.update { it.copy(isSaving = false) }
