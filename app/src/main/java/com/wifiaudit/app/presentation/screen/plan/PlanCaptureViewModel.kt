@@ -10,6 +10,7 @@ import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.domain.repository.SavedPlanRepository
 import com.wifiaudit.app.domain.usecase.DetectRoomsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,7 +28,9 @@ data class PlanCaptureUiState(
     val editableRooms: List<CanvasRoom> = emptyList(),
     val isDetecting: Boolean            = false,
     val newRoomLabel: String            = "",
-    val savedPlans: List<SavedPlan>     = emptyList()
+    val savedPlans: List<SavedPlan>     = emptyList(),
+    val showSaveDialog: Boolean         = false,
+    val planSaved: Boolean              = false
 )
 
 @HiltViewModel
@@ -80,6 +83,36 @@ class PlanCaptureViewModel @Inject constructor(
 
     fun deleteSavedPlan(planId: String) {
         viewModelScope.launch { savedPlanRepository.delete(planId) }
+    }
+
+    // ── Enregistrement du plan (pièces seules, avant placement des équipements) ─
+
+    fun showSaveDialog() {
+        if (_uiState.value.editableRooms.isEmpty()) return
+        _uiState.update { it.copy(showSaveDialog = true) }
+    }
+
+    fun dismissSaveDialog() {
+        _uiState.update { it.copy(showSaveDialog = false) }
+    }
+
+    fun savePlan(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val state = _uiState.value
+        if (state.editableRooms.isEmpty()) return
+        viewModelScope.launch {
+            savedPlanRepository.save(
+                SavedPlan(
+                    name          = trimmed,
+                    planImagePath = state.planImagePath ?: "",
+                    rooms         = state.editableRooms
+                )
+            )
+            _uiState.update { it.copy(showSaveDialog = false, planSaved = true) }
+            delay(2_000)
+            _uiState.update { it.copy(planSaved = false) }
+        }
     }
 
     // ── Option Photo — ML Kit ─────────────────────────────────────────────────

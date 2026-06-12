@@ -1,39 +1,39 @@
 package com.wifiaudit.app.presentation.screen.equipment
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.Position
 import com.wifiaudit.app.domain.model.RepeaterPosition
-import com.wifiaudit.app.domain.model.SavedPlan
-import com.wifiaudit.app.domain.repository.SavedPlanRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class EquipmentPlacementUiState(
     val gatewayPosition: Pair<Float, Float>?    = null,
     val repeaterConfirmed: Boolean              = false,
-    val repeaterPositions: List<Pair<Float, Float>> = emptyList(),
-    val showSaveDialog: Boolean                 = false,
-    val planSaved: Boolean                      = false
+    val repeaterPositions: List<Pair<Float, Float>> = emptyList()
 )
 
 @HiltViewModel
-class EquipmentPlacementViewModel @Inject constructor(
-    private val savedPlanRepository: SavedPlanRepository
-) : ViewModel() {
+class EquipmentPlacementViewModel @Inject constructor() : ViewModel() {
 
     private val _uiState = MutableStateFlow(EquipmentPlacementUiState())
     val uiState: StateFlow<EquipmentPlacementUiState> = _uiState.asStateFlow()
 
     fun placeGateway(x: Float, y: Float) {
         _uiState.update { it.copy(gatewayPosition = x to y) }
+    }
+
+    /** Déplacement relatif de la box (drag sur le plan), borné au plan. */
+    fun moveGatewayBy(dx: Float, dy: Float) {
+        _uiState.update { s ->
+            val gw = s.gatewayPosition ?: return@update s
+            s.copy(
+                gatewayPosition = (gw.first + dx).coerceIn(0f, 1f) to (gw.second + dy).coerceIn(0f, 1f)
+            )
+        }
     }
 
     fun confirmHasRepeater() {
@@ -44,9 +44,23 @@ class EquipmentPlacementViewModel @Inject constructor(
         _uiState.update { it.copy(repeaterPositions = it.repeaterPositions + (x to y)) }
     }
 
-    /** Retire le dernier répéteur placé (annulation d'un tap accidentel). */
-    fun removeLastRepeater() {
-        _uiState.update { it.copy(repeaterPositions = it.repeaterPositions.dropLast(1)) }
+    /** Déplacement relatif d'un répéteur (drag sur le plan), borné au plan. */
+    fun moveRepeaterBy(index: Int, dx: Float, dy: Float) {
+        _uiState.update { s ->
+            if (index !in s.repeaterPositions.indices) return@update s
+            val updated = s.repeaterPositions.toMutableList()
+            val (x, y) = updated[index]
+            updated[index] = (x + dx).coerceIn(0f, 1f) to (y + dy).coerceIn(0f, 1f)
+            s.copy(repeaterPositions = updated)
+        }
+    }
+
+    /** Suppression individuelle d'un répéteur par son index (et pas seulement le dernier). */
+    fun removeRepeater(index: Int) {
+        _uiState.update { s ->
+            if (index !in s.repeaterPositions.indices) return@update s
+            s.copy(repeaterPositions = s.repeaterPositions.filterIndexed { i, _ -> i != index })
+        }
     }
 
     // Pré-charge les positions depuis un plan sauvegardé (appelé une seule fois à l'init de l'écran)
@@ -59,42 +73,6 @@ class EquipmentPlacementViewModel @Inject constructor(
                 repeaterPositions = repeaters.map { r -> r.position.x to r.position.y },
                 repeaterConfirmed = repeaters.isNotEmpty()
             )
-        }
-    }
-
-    // ── Sauvegarde du plan complet (pièces + GW + répéteurs) ─────────────────
-
-    fun showSaveDialog() {
-        _uiState.update { it.copy(showSaveDialog = true) }
-    }
-
-    fun dismissSaveDialog() {
-        _uiState.update { it.copy(showSaveDialog = false) }
-    }
-
-    fun savePlan(
-        name: String,
-        planImagePath: String,
-        rooms: List<CanvasRoom>,
-        gateway: Pair<Float, Float>,
-        repeaters: List<Pair<Float, Float>>
-    ) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        viewModelScope.launch {
-            val plan = SavedPlan(
-                name              = trimmed,
-                planImagePath     = planImagePath,
-                rooms             = rooms,
-                gatewayPosition   = Position(gateway.first, gateway.second),
-                repeaterPositions = repeaters.mapIndexed { i, (x, y) ->
-                    RepeaterPosition(id = "rep_$i", position = Position(x, y))
-                }
-            )
-            savedPlanRepository.save(plan)
-            _uiState.update { it.copy(showSaveDialog = false, planSaved = true) }
-            delay(2_000)
-            _uiState.update { it.copy(planSaved = false) }
         }
     }
 }

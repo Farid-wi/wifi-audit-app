@@ -8,6 +8,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,9 +39,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,8 +52,10 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -133,6 +141,13 @@ fun PlanCaptureScreen(
         viewModel.backToPicker()
     }
 
+    if (uiState.showSaveDialog) {
+        SavePlanDialog(
+            onDismiss = viewModel::dismissSaveDialog,
+            onConfirm = viewModel::savePlan
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -157,7 +172,9 @@ fun PlanCaptureScreen(
             PlanStep.CANVAS_BUILDER ->
                 CanvasBuilderStep(
                     rooms     = uiState.editableRooms,
+                    planSaved = uiState.planSaved,
                     onUpdate  = viewModel::onCanvasRoomsConfirmed,
+                    onSave    = viewModel::showSaveDialog,
                     onConfirm = {
                         auditCreationViewModel.setPlanImagePath(
                             path  = "",
@@ -343,7 +360,9 @@ private enum class Corner { TL, TR, BL, BR }
 @Composable
 private fun CanvasBuilderStep(
     rooms: List<CanvasRoom>,
+    planSaved: Boolean,
     onUpdate: (List<CanvasRoom>) -> Unit,
+    onSave: () -> Unit,
     onConfirm: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -417,8 +436,36 @@ private fun CanvasBuilderStep(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG)
+                .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
         ) {
+            // Enregistrer le plan (pièces seules) — disponible dès qu'une pièce est dessinée.
+            if (rooms.isNotEmpty()) {
+                AnimatedVisibility(visible = planSaved, enter = fadeIn(), exit = fadeOut()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null,
+                             tint = AppColors.SignalGood, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(AppSpacing.XS))
+                        Text("Plan enregistré", style = AppType.ControlLabel, color = AppColors.SignalGood)
+                    }
+                }
+                OutlinedButton(
+                    onClick  = onSave,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape    = AppShape.Pill,
+                    border   = androidx.compose.foundation.BorderStroke(1.dp, AppColors.Accent)
+                ) {
+                    Icon(Icons.Outlined.BookmarkBorder, null,
+                         tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(AppSpacing.XS))
+                    Text("Enregistrer ce plan", style = AppType.BodyEmphasis, color = AppColors.Accent)
+                }
+            }
+
             Button(
                 onClick   = onConfirm,
                 enabled   = rooms.isNotEmpty(),
@@ -779,6 +826,51 @@ private fun RoomConfirmationStep(
             Text("Ça semble bon, continuer", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
         }
     }
+}
+
+// ─── Dialog : saisie du nom du plan ──────────────────────────────────────────
+
+@Composable
+private fun SavePlanDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title   = { Text("Enregistrer ce plan", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        text    = {
+            OutlinedTextField(
+                value           = name,
+                onValueChange   = { name = it },
+                placeholder     = { Text("Nom du plan", style = AppType.BodyPrimary, color = AppColors.TextMeta) },
+                singleLine      = true,
+                shape           = AppShape.Medium,
+                modifier        = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (name.isNotBlank()) onConfirm(name) })
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick   = { onConfirm(name) },
+                enabled   = name.isNotBlank(),
+                shape     = AppShape.Pill,
+                colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+            }
+        },
+        containerColor = AppColors.Surface,
+        shape          = AppShape.Large
+    )
 }
 
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
