@@ -85,7 +85,7 @@ fun EquipmentPlacementScreen(
             val (title, instruction) = when {
                 uiState.gatewayPosition == null ->
                     "Placez votre box internet sur le plan" to
-                    "Appuyez sur le plan à l'endroit où elle se trouve. Si elle est à un autre étage, placez-la dans le cadre en bas."
+                    "Appuyez sur le plan à l'endroit où elle se trouve. Si elle n'est pas sur ce plan, placez-la dans le cadre en bas."
                 !uiState.repeaterConfirmed ->
                     "Avez-vous un répéteur Wi-Fi ?" to "Glissez la box pour l'ajuster. Un répéteur amplifie le signal dans les zones éloignées."
                 else ->
@@ -315,7 +315,7 @@ private fun OffFloorGatewayZone(
         contentAlignment = Alignment.Center
     ) {
         if (isEmpty) {
-            Text("Autre étage", style = AppType.ControlLabel, color = AppColors.TextMuted)
+            Text("Hors plan", style = AppType.ControlLabel, color = AppColors.TextMuted)
         } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
