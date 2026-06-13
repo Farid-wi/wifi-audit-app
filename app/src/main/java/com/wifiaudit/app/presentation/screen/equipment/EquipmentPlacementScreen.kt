@@ -116,8 +116,9 @@ fun EquipmentPlacementScreen(
         }
 
         OffFloorGatewayZone(
-            gatewayPlaced        = uiState.gatewayOnDifferentFloor,
+            gatewayPlaced         = uiState.gatewayOnDifferentFloor,
             offFloorRepeaterCount = uiState.offFloorRepeaterCount,
+            repeaterStartIndex    = uiState.repeaterPositions.size + 1,
             onTap = {
                 if (!uiState.repeaterConfirmed) viewModel.placeGatewayOffFloor()
                 else viewModel.addRepeaterOffFloor()
@@ -304,6 +305,7 @@ private fun CanvasRoomsPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modifi
 private fun OffFloorGatewayZone(
     gatewayPlaced: Boolean,
     offFloorRepeaterCount: Int,
+    repeaterStartIndex: Int = 1,
     onTap: () -> Unit,
     onRemoveRepeater: () -> Unit,
     modifier: Modifier = Modifier
@@ -332,7 +334,7 @@ private fun OffFloorGatewayZone(
                         EquipmentPinCircle(EquipmentType.GATEWAY)
                     }
                 }
-                repeat(offFloorRepeaterCount) { index ->
+                repeat(offFloorRepeaterCount) { i ->
                     Box(
                         modifier = Modifier.size(36.dp),
                         contentAlignment = Alignment.Center
@@ -354,7 +356,7 @@ private fun OffFloorGatewayZone(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "${index + 1}",
+                                "${repeaterStartIndex + i}",
                                 color = Color.White,
                                 style = AppType.ControlLabel.copy(fontSize = 8.sp)
                             )
