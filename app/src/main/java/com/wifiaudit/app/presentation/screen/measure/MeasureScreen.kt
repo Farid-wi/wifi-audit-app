@@ -3,7 +3,6 @@ package com.wifiaudit.app.presentation.screen.measure
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -26,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,7 +66,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -134,6 +136,15 @@ fun MeasureScreen(
         )
     }
 
+    val haptic = LocalHapticFeedback.current
+    // Retour haptique court à la fin de chaque mesure réussie.
+    LaunchedEffect(uiState.measurementCount) {
+        if (uiState.measurementCount > 0) {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = AppColors.Background,
         snackbarHost = {
@@ -215,16 +226,6 @@ fun MeasureScreen(
                     guidedDeviceId     = uiState.guidedDevice?.deviceId,
                     modifier           = Modifier.fillMaxSize()
                 )
-
-                // Overlay « ne bougez pas » pendant le scan (2-4s) : message + radar animé,
-                // bloque les interactions pour éviter un déplacement ou un tap accidentel.
-                if (uiState.isLoading) {
-                    MeasuringOverlay(
-                        deviceLabel = uiState.guidedDevice?.label,
-                        onCancel    = viewModel::cancelMeasurement,
-                        modifier    = Modifier.matchParentSize()
-                    )
-                }
             }
 
             // ─── Bouton terminer ──────────────────────────────────────────
@@ -252,6 +253,16 @@ fun MeasureScreen(
                     }
                 }
             }
+        }
+    }
+
+        // Overlay plein écran pendant la mesure — couvre header, bannière et FAB
+        // pour n'afficher qu'un seul message cohérent (« Restez immobile »).
+        if (uiState.isLoading) {
+            MeasuringOverlay(
+                deviceLabel = uiState.guidedDevice?.label,
+                onCancel    = viewModel::cancelMeasurement
+            )
         }
     }
 }
@@ -597,29 +608,51 @@ private fun StepGuidanceBanner(
     }
 }
 
-// ─── Overlay « ne bougez pas » pendant la mesure ─────────────────────────────
+// ─── Overlay plein écran pendant la mesure ───────────────────────────────────
 
 @Composable
 private fun MeasuringOverlay(
     deviceLabel: String?,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
+    onCancel: () -> Unit
 ) {
     Box(
-        modifier = modifier
-            .background(AppColors.Background.copy(alpha = 0.88f))
-            // Capture tous les gestes : empêche tap / zoom / déplacement pendant le scan
-            .pointerInput(Unit) { detectTapGestures { } },
+        modifier = Modifier
+            .fillMaxSize()
+            // Fond sombre quasi opaque : aucun plan visible derrière (un seul focus).
+            .background(Color(0xFF15181D).copy(alpha = 0.94f))
+            // Capture tous les gestes : rien ne passe à travers l'overlay.
+            .pointerInput(Unit) { detectTapGestures { } }
+            .systemBarsPadding(),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            RadarPulse()
-            Spacer(Modifier.height(AppSpacing.XXL))
-            Text(
-                text  = "Restez immobile",
-                style = AppType.CardTitle,
-                color = AppColors.TextPrimary
-            )
+            // Cercle bleu + icône Wi-Fi, ceinturé d'un anneau de progression.
+            Box(
+                modifier = Modifier.size(120.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.fillMaxSize(),
+                    color = AppColors.Accent,
+                    strokeWidth = 4.dp
+                )
+                Box(
+                    modifier = Modifier
+                        .size(84.dp)
+                        .background(AppColors.Accent, AppShape.Circle),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Wifi,
+                        contentDescription = null,
+                        tint = AppColors.OnAccent,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(AppSpacing.Section))
+            // Un seul message à la fois.
+            Text("Restez immobile", style = AppType.CardTitle, color = Color.White)
             Spacer(Modifier.height(AppSpacing.XS))
             Text(
                 text = if (deviceLabel != null)
@@ -627,64 +660,18 @@ private fun MeasuringOverlay(
                 else
                     "Mesure du signal en cours…",
                 style = AppType.BodyPrimary,
-                color = AppColors.TextSecondary
+                color = Color.White.copy(alpha = 0.70f)
             )
-            Spacer(Modifier.height(AppSpacing.XS))
-            Text(
-                text  = "Ne déplacez pas le téléphone",
-                style = AppType.ControlLabel,
-                color = AppColors.TextMuted
-            )
-            Spacer(Modifier.height(AppSpacing.XL))
-            // Échappatoire si la mesure a été lancée par erreur.
-            androidx.compose.material3.TextButton(onClick = onCancel) {
-                Text("Annuler", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
-            }
         }
-    }
-}
 
-/** Anneaux concentriques qui s'étendent en boucle (effet radar) autour d'une pastille Wi-Fi. */
-@Composable
-private fun RadarPulse() {
-    val transition = rememberInfiniteTransition(label = "radar")
-    Box(
-        modifier = Modifier.size(140.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        repeat(3) { i ->
-            val progress by transition.animateFloat(
-                initialValue  = 0f,
-                targetValue   = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation  = tween(1800, delayMillis = i * 600, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "ring_$i"
-            )
-            Box(
-                modifier = Modifier
-                    .size(140.dp)
-                    .graphicsLayer {
-                        scaleX = progress
-                        scaleY = progress
-                        alpha  = 1f - progress
-                    }
-                    .border(2.dp, AppColors.Accent, AppShape.Circle)
-            )
-        }
-        Box(
+        // Bouton fantôme « Annuler » bien détaché en bas, dans la safe-area.
+        androidx.compose.material3.TextButton(
+            onClick = onCancel,
             modifier = Modifier
-                .size(64.dp)
-                .background(AppColors.Accent, AppShape.Circle),
-            contentAlignment = Alignment.Center
+                .align(Alignment.BottomCenter)
+                .padding(bottom = AppSpacing.Section)
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Wifi,
-                contentDescription = null,
-                tint = AppColors.OnAccent,
-                modifier = Modifier.size(32.dp)
-            )
+            Text("Annuler", style = AppType.BodyEmphasis, color = Color.White.copy(alpha = 0.85f))
         }
     }
 }
