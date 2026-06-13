@@ -34,7 +34,8 @@ class NetworkSelectionViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     networks     = networks,
-                    selectedSsid = connectedSsid ?: it.selectedSsid,
+                    // Réseau connecté > sélection existante > unique réseau détecté.
+                    selectedSsid = connectedSsid ?: it.selectedSsid ?: networks.singleOrNull()?.ssid,
                     isLoading    = false
                 )
             }

@@ -229,10 +229,19 @@ class WifiRepositoryImpl @Inject constructor(
                 .mapNotNull { r ->
                     val ssid = r.SSID?.trim()?.takeIf { it.isNotEmpty() && it != "<unknown ssid>" }
                         ?: return@mapNotNull null
-                    WifiRepository.VisibleNetwork(ssid, ssid == connectedSsid)
+                    Triple(ssid, r.level, ssid == connectedSsid)
                 }
-                .distinctBy { it.ssid }
-                .sortedByDescending { it.isConnected }
+                // Un même SSID peut apparaître sur plusieurs BSSID/bandes → garder le plus fort.
+                .groupBy { it.first }
+                .map { (ssid, list) ->
+                    WifiRepository.VisibleNetwork(
+                        ssid        = ssid,
+                        isConnected = list.any { it.third },
+                        level       = list.maxOf { it.second }
+                    )
+                }
+                .sortedWith(compareByDescending<WifiRepository.VisibleNetwork> { it.isConnected }
+                    .thenByDescending { it.level })
         }
 
     // ─── API moderne pour WifiInfo (Android 10+) ─────────────────────────────

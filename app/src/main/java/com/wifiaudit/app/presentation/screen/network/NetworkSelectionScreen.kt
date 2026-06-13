@@ -5,6 +5,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,15 +23,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -128,12 +133,7 @@ fun NetworkSelectionScreen(
                 modifier = Modifier.weight(1f)
             )
 
-            uiState.isLoading -> Box(
-                Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = AppColors.Accent)
-            }
+            uiState.isLoading -> SkeletonNetworkList(modifier = Modifier.weight(1f))
 
             else -> LazyColumn(modifier = Modifier.weight(1f)) {
                 items(uiState.networks) { network ->
@@ -159,6 +159,8 @@ fun NetworkSelectionScreen(
                         }
                     }
                 }
+                // Carte d'aide en bas de liste.
+                item { NetworkHelpCard() }
             }
         }
 
@@ -231,12 +233,7 @@ private fun NetworkItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
     ) {
-        Icon(
-            Icons.Outlined.Wifi,
-            contentDescription = null,
-            tint = if (network.isConnected) AppColors.Accent else AppColors.TextMuted,
-            modifier = Modifier.size(22.dp)
-        )
+        SignalBars(level = network.level, active = network.isConnected || isSelected)
         Text(
             text = network.ssid,
             style = AppType.BodyPrimary,
@@ -257,6 +254,83 @@ private fun NetworkItem(
             selected = isSelected,
             onClick = onSelect,
             colors = RadioButtonDefaults.colors(selectedColor = AppColors.Accent)
+        )
+    }
+}
+
+/** Nombre de barres (1..4) à partir du RSSI — jamais affiché en clair (règle « pas de dBm »). */
+private fun signalBars(rssi: Int): Int = when {
+    rssi >= -55 -> 4
+    rssi >= -67 -> 3
+    rssi >= -78 -> 2
+    else        -> 1
+}
+
+@Composable
+private fun SignalBars(level: Int, active: Boolean) {
+    val bars = signalBars(level)
+    val onColor  = if (active) AppColors.Accent else AppColors.TextSecondary
+    val offColor = AppColors.BorderSoft
+    val heights = listOf(7.dp, 11.dp, 15.dp, 19.dp)
+    Row(
+        modifier = Modifier.width(24.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        repeat(4) { i ->
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(heights[i])
+                    .background(if (i < bars) onColor else offColor, AppShape.Small)
+            )
+        }
+    }
+}
+
+/** Skeleton animé (shimmer) affiché pendant le scan, à la place d'un écran vide. */
+@Composable
+private fun SkeletonNetworkList(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
+        label = "shimmerAlpha"
+    )
+    val shimmer = AppColors.BorderSoft.copy(alpha = alpha)
+    Column(modifier = modifier.fillMaxWidth()) {
+        repeat(4) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+            ) {
+                Box(Modifier.size(20.dp).background(shimmer, AppShape.Small))
+                Box(Modifier.height(14.dp).fillMaxWidth(0.55f).background(shimmer, AppShape.Small))
+            }
+            HorizontalDivider(color = AppColors.BorderSoft, thickness = 0.5.dp)
+        }
+    }
+}
+
+@Composable
+private fun NetworkHelpCard() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG)
+            .background(AppColors.Accent.copy(alpha = 0.06f), AppShape.Large)
+            .padding(AppSpacing.LG),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+    ) {
+        Icon(Icons.Outlined.Info, null, tint = AppColors.Accent, modifier = Modifier.size(20.dp))
+        Text(
+            "Vous ne voyez pas votre réseau ? Rapprochez-vous de votre box, puis actualisez.",
+            style = AppType.ControlLabel, color = AppColors.TextSecondary
         )
     }
 }

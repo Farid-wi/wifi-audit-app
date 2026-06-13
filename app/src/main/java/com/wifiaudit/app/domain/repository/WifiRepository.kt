@@ -22,10 +22,11 @@ interface WifiRepository {
         val connectedBssid: String = ""
     )
 
-    /** Réseau visible dans les environs. */
+    /** Réseau visible dans les environs. [level] = RSSI brut (interne, jamais affiché tel quel). */
     data class VisibleNetwork(
         val ssid: String,
-        val isConnected: Boolean
+        val isConnected: Boolean,
+        val level: Int = 0
     )
 
     suspend fun scan(targetSsid: String? = null): Result<ScanData>
