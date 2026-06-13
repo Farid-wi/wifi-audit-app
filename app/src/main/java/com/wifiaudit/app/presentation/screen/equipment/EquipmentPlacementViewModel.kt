@@ -13,7 +13,6 @@ import javax.inject.Inject
 data class EquipmentPlacementUiState(
     val gatewayPosition: Pair<Float, Float>?        = null,
     val gatewayOnDifferentFloor: Boolean            = false,
-    val repeaterConfirmed: Boolean                  = false,
     val repeaterPositions: List<Pair<Float, Float>> = emptyList(),
     val offFloorRepeaterCount: Int                  = 0
 )
@@ -40,10 +39,6 @@ class EquipmentPlacementViewModel @Inject constructor() : ViewModel() {
                 gatewayPosition = (gw.first + dx).coerceIn(0f, 1f) to (gw.second + dy).coerceIn(0f, 1f)
             )
         }
-    }
-
-    fun confirmHasRepeater() {
-        _uiState.update { it.copy(repeaterConfirmed = true) }
     }
 
     fun addRepeater(x: Float, y: Float) {
@@ -84,8 +79,7 @@ class EquipmentPlacementViewModel @Inject constructor() : ViewModel() {
         _uiState.update {
             it.copy(
                 gatewayPosition   = gateway.x to gateway.y,
-                repeaterPositions = repeaters.map { r -> r.position.x to r.position.y },
-                repeaterConfirmed = repeaters.isNotEmpty()
+                repeaterPositions = repeaters.map { r -> r.position.x to r.position.y }
             )
         }
     }

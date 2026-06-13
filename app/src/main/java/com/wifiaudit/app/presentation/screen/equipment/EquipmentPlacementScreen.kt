@@ -87,8 +87,6 @@ fun EquipmentPlacementScreen(
                 uiState.gatewayPosition == null ->
                     "Placez votre box internet sur le plan" to
                     "Appuyez sur le plan à l'endroit où elle se trouve. Si elle n'est pas sur ce plan, placez-la dans le cadre en bas."
-                !uiState.repeaterConfirmed ->
-                    "Avez-vous un répéteur Wi-Fi ?" to "Glissez la box pour l'ajuster. Un répéteur amplifie le signal dans les zones éloignées."
                 else ->
                     "Placez vos répéteurs Wi-Fi" to "Appuyez sur le plan pour ajouter un répéteur. Glissez pour le déplacer, touchez le symbole répéteur pour le supprimer."
             }
@@ -103,10 +101,8 @@ fun EquipmentPlacementScreen(
                 rooms         = creationState.rooms,
                 uiState       = uiState,
                 onTap         = { x, y ->
-                    when {
-                        !uiState.repeaterConfirmed -> viewModel.placeGateway(x, y)
-                        else                       -> viewModel.addRepeater(x, y)
-                    }
+                    if (uiState.gatewayPosition == null) viewModel.placeGateway(x, y)
+                    else viewModel.addRepeater(x, y)
                 },
                 onMoveGateway    = viewModel::moveGatewayBy,
                 onMoveRepeater   = viewModel::moveRepeaterBy,
@@ -120,7 +116,7 @@ fun EquipmentPlacementScreen(
             offFloorRepeaterCount = uiState.offFloorRepeaterCount,
             repeaterStartIndex    = uiState.repeaterPositions.size + 1,
             onTap = {
-                if (!uiState.repeaterConfirmed) viewModel.placeGatewayOffFloor()
+                if (uiState.gatewayPosition == null) viewModel.placeGatewayOffFloor()
                 else viewModel.addRepeaterOffFloor()
             },
             onRemoveRepeater = viewModel::removeOffFloorRepeater,
@@ -137,41 +133,13 @@ fun EquipmentPlacementScreen(
                 .padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.LG),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
         ) {
-            when {
-                uiState.gatewayPosition == null -> {}
-
-                !uiState.repeaterConfirmed -> {
-                    Button(
-                        onClick   = viewModel::confirmHasRepeater,
-                        modifier  = Modifier.fillMaxWidth(),
-                        shape     = AppShape.Pill,
-                        colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
-                        elevation = ButtonDefaults.buttonElevation(0.dp)
-                    ) {
-                        Text("Oui, j'ai un répéteur", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
-                    }
-                    TextButton(
-                        onClick = {
-                            auditCreationViewModel.setGatewayPosition(
-                                uiState.gatewayPosition!!.first,
-                                uiState.gatewayPosition!!.second
-                            )
-                            auditCreationViewModel.setRepeaters(emptyList())
-                            onNext()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Non, continuer sans répéteur", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
-                    }
-                }
-
-                uiState.repeaterPositions.isNotEmpty() || uiState.offFloorRepeaterCount > 0 -> {
+            val gw = uiState.gatewayPosition
+            if (gw != null) {
+                val n = uiState.repeaterPositions.size + uiState.offFloorRepeaterCount
+                if (n > 0) {
                     Button(
                         onClick = {
-                            auditCreationViewModel.setGatewayPosition(
-                                uiState.gatewayPosition!!.first,
-                                uiState.gatewayPosition!!.second
-                            )
+                            auditCreationViewModel.setGatewayPosition(gw.first, gw.second)
                             val offFloorPairs = List(uiState.offFloorRepeaterCount) { -1f to -1f }
                             auditCreationViewModel.setRepeaters(uiState.repeaterPositions + offFloorPairs)
                             onNext()
@@ -181,12 +149,21 @@ fun EquipmentPlacementScreen(
                         colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        val n = uiState.repeaterPositions.size + uiState.offFloorRepeaterCount
                         Text(
                             "Continuer ($n répéteur${if (n > 1) "s" else ""})",
                             style = AppType.BodyEmphasis, color = AppColors.OnAccent
                         )
                     }
+                }
+                TextButton(
+                    onClick = {
+                        auditCreationViewModel.setGatewayPosition(gw.first, gw.second)
+                        auditCreationViewModel.setRepeaters(emptyList())
+                        onNext()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Continuer sans répéteur Wi-Fi", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
                 }
             }
         }
