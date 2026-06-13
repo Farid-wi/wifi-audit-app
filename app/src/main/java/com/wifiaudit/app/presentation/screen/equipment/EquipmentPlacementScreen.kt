@@ -334,34 +334,45 @@ private fun OffFloorGatewayZone(
                              tint = AppColors.Accent, modifier = Modifier.size(18.dp))
                     }
                 }
-                repeat(offFloorRepeaterCount) {
-                    Box(
-                        modifier = Modifier.size(32.dp),
-                        contentAlignment = Alignment.Center
+                repeat(offFloorRepeaterCount) { index ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .background(Color.White, AppShape.Circle)
-                                .border(2.dp, AppColors.SignalFair, AppShape.Circle)
-                                .pointerInput(Unit) { detectTapGestures { } },
+                            modifier = Modifier.size(36.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Outlined.SettingsInputAntenna, contentDescription = null,
-                                 tint = AppColors.SignalFair, modifier = Modifier.size(18.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(Color.White, AppShape.Circle)
+                                    .border(2.dp, AppColors.SignalFair, AppShape.Circle)
+                                    .pointerInput(Unit) { detectTapGestures { } },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.SettingsInputAntenna, contentDescription = null,
+                                     tint = AppColors.SignalFair, modifier = Modifier.size(18.dp))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                                    .size(14.dp)
+                                    .background(AppColors.SignalPoor, AppShape.Circle)
+                                    .border(1.5.dp, Color.White, AppShape.Circle)
+                                    .pointerInput(Unit) { detectTapGestures { onRemoveRepeater() } },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.Close, contentDescription = null,
+                                     tint = Color.White, modifier = Modifier.size(8.dp))
+                            }
                         }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .size(16.dp)
-                                .background(AppColors.SignalPoor, AppShape.Circle)
-                                .border(1.5.dp, Color.White, AppShape.Circle)
-                                .pointerInput(Unit) { detectTapGestures { onRemoveRepeater() } },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.Close, contentDescription = null,
-                                 tint = Color.White, modifier = Modifier.size(9.dp))
-                        }
+                        Text(
+                            "${index + 1}",
+                            style = AppType.ControlLabel,
+                            color = AppColors.TextMuted
+                        )
                     }
                 }
             }
