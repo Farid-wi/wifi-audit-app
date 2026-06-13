@@ -90,7 +90,7 @@ fun EquipmentPlacementScreen(
                 !uiState.repeaterConfirmed ->
                     "Avez-vous un répéteur Wi-Fi ?" to "Glissez la box pour l'ajuster. Un répéteur amplifie le signal dans les zones éloignées."
                 else ->
-                    "Où est votre répéteur ?" to "Appuyez pour ajouter un répéteur. Glissez pour le déplacer, touchez ✕ pour le retirer."
+                    "Placez vos répéteurs Wi-Fi" to "Appuyez sur le plan pour ajouter un répéteur. Glissez pour le déplacer, touchez le symbole répéteur pour le supprimer."
             }
             Text(title, style = AppType.CardTitle, color = AppColors.TextPrimary)
             Spacer(Modifier.height(AppSpacing.XS))
