@@ -341,40 +341,15 @@ private fun MeasureHeader(
     }
 }
 
-/** Jauge de progression des mesures : ●●○○○ + libellé, verte une fois le minimum atteint. */
+/** Compteur de mesures effectuées. */
 @Composable
 private fun MeasureGauge(count: Int) {
-    val reached = count >= MIN_MEASUREMENTS
-    val activeColor = if (reached) AppColors.SignalGood else AppColors.Accent
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM)
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)) {
-            repeat(MIN_MEASUREMENTS) { i ->
-                val filled = i < count
-                Box(
-                    modifier = Modifier
-                        .size(11.dp)
-                        .background(
-                            if (filled) activeColor else Color.Transparent,
-                            AppShape.Circle
-                        )
-                        .border(
-                            1.5.dp,
-                            if (filled) activeColor else AppColors.Border,
-                            AppShape.Circle
-                        )
-                )
-            }
-        }
-        Text(
-            text = if (reached) "$count mesures · minimum atteint"
-                   else "$count / $MIN_MEASUREMENTS mesures",
-            style = AppType.BodyEmphasis,
-            color = activeColor
-        )
-    }
+    val color = if (count > 0) AppColors.SignalGood else AppColors.Accent
+    Text(
+        text  = if (count == 0) "Aucune mesure" else "$count mesure${if (count > 1) "s" else ""}",
+        style = AppType.BodyEmphasis,
+        color = color
+    )
 }
 
 /** Petite puce (lecture seule) indiquant le mode actif. */

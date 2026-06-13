@@ -65,12 +65,10 @@ data class MeasureUiState(
     val toastMessage: String? = null
 ) {
     val measurementCount: Int get() = measurements.size
-    /** Terminer uniquement après la phase guidée et le minimum de mesures. */
-    val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS && guidedDevice == null
+    /** Terminer dès que la phase guidée (calibrage) est terminée. */
+    val canFinish: Boolean get() = guidedDevice == null && measurements.isNotEmpty()
     val canMeasure: Boolean get() = pendingPosition != null && !isLoading && scanCooldownSeconds == 0
 }
-
-const val MIN_MEASUREMENTS = 5
 
 // Cadence délibérée entre deux mesures (mode STANDARD) : ~10 s d'espacement des scans + ~5 s de
 // déplacement. Au-delà de 4 mesures rapprochées, le throttle Android (4 scans / 2 min) peut
