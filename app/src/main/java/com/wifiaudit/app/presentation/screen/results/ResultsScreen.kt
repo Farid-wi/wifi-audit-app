@@ -78,9 +78,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.OverallScore
 import com.wifiaudit.app.domain.model.Recommendation
+import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.Severity
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.model.toUserLabel
+import androidx.compose.ui.unit.IntOffset
 import com.wifiaudit.app.domain.usecase.HeatmapGrid
 import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.theme.AppColors
@@ -151,13 +153,18 @@ fun ResultsScreen(
             }
 
             // ─── Heatmap ──────────────────────────────────────────────────
+            val gatewayOffPlan    = (uiState.gatewayPosition?.x ?: 0f) < 0f
+            val offPlanRepeaters  = uiState.repeaterPositions.filter { it.position.x < 0f }
+            val hasOffPlan        = gatewayOffPlan || offPlanRepeaters.isNotEmpty()
+            val onPlanRepCount    = uiState.repeaterPositions.count { it.position.x >= 0f }
+
             PlanWithHeatmap(
                 planImagePath      = uiState.planImagePath,
                 rooms              = uiState.rooms,
                 roomGrids          = uiState.roomGrids,
-                measurementDots    = uiState.measurementDots,
-                gatewayPosition    = uiState.gatewayPosition,
-                repeaterPositions  = uiState.repeaterPositions,
+                measurementDots    = uiState.measurementDots.filter { it.x >= 0f },
+                gatewayPosition    = uiState.gatewayPosition?.takeIf { it.x >= 0f },
+                repeaterPositions  = uiState.repeaterPositions.filter { it.position.x >= 0f },
                 selectedDeviceId   = uiState.selectedDeviceId,
                 onDeviceClick      = viewModel::selectDevice,
                 modifier           = Modifier
@@ -165,6 +172,19 @@ fun ResultsScreen(
                     .aspectRatio(4f / 3f)
                     .clip(AppShape.Large)
             )
+
+            if (hasOffPlan) {
+                Spacer(Modifier.height(AppSpacing.SM))
+                HorsPlanResultsZone(
+                    gatewayOffPlan     = gatewayOffPlan,
+                    offPlanRepeaters   = offPlanRepeaters,
+                    repeaterStartIndex = onPlanRepCount + 1,
+                    selectedDeviceId   = uiState.selectedDeviceId,
+                    onDeviceClick      = viewModel::selectDevice,
+                    modifier           = Modifier.fillMaxWidth()
+                )
+            }
+
             Spacer(Modifier.height(AppSpacing.MD))
             HeatmapLegend()
 
@@ -521,6 +541,92 @@ private fun rssiToColor(rssi: Float): Color {
         }
     }
     return RSSI_STOPS.last().second
+}
+
+// ─── Zone hors-plan (résultats) ──────────────────────────────────────────────
+
+@Composable
+private fun HorsPlanResultsZone(
+    gatewayOffPlan: Boolean,
+    offPlanRepeaters: List<RepeaterPosition>,
+    repeaterStartIndex: Int,
+    selectedDeviceId: String?,
+    onDeviceClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(56.dp)
+            .border(1.5.dp, AppColors.BorderSoft, AppShape.Medium),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment     = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)
+        ) {
+            if (gatewayOffPlan) {
+                HorsPlanDevicePin(
+                    icon       = Icons.Outlined.Router,
+                    color      = AppColors.Accent,
+                    isSelected = selectedDeviceId == "gateway",
+                    onClick    = { onDeviceClick("gateway") }
+                )
+            }
+            offPlanRepeaters.forEachIndexed { i, rep ->
+                HorsPlanDevicePin(
+                    icon       = Icons.Outlined.SettingsInputAntenna,
+                    color      = AppColors.SignalFair,
+                    index      = repeaterStartIndex + i,
+                    isSelected = selectedDeviceId == rep.id,
+                    onClick    = { onDeviceClick(rep.id) }
+                )
+            }
+            Spacer(Modifier.width(AppSpacing.XS))
+            Text("Hors plan", style = AppType.ControlLabel, color = AppColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun HorsPlanDevicePin(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color,
+    index: Int? = null,
+    isSelected: Boolean = false,
+    onClick: () -> Unit = {}
+) {
+    val containerDp = 40.dp
+    val innerDp     = 32.dp
+    val bgColor     = if (isSelected) color else Color.White.copy(alpha = 0.92f)
+    val iconColor   = if (isSelected) Color.White else color
+    Box(modifier = Modifier.size(containerDp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(innerDp)
+                .background(bgColor, AppShape.Circle)
+                .border(2.dp, color, AppShape.Circle)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
+        }
+        if (index != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset {
+                        val pad = ((containerDp - innerDp) / 2).roundToPx()
+                        IntOffset(pad, pad - 8.dp.roundToPx())
+                    }
+                    .size(14.dp)
+                    .background(Color(0xFFAEAEB2), AppShape.Circle)
+                    .border(1.5.dp, Color.White, AppShape.Circle),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("$index", color = Color.White, style = AppType.Micro)
+            }
+        }
+    }
 }
 
 // ─── Sélecteur de bande ──────────────────────────────────────────────────────
