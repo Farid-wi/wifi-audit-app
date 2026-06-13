@@ -206,6 +206,13 @@ fun MeasureScreen(
 
             // ─── Plan interactif + zone hors-plan ────────────────────────
             val isPendingOffPlan = uiState.pendingPosition?.first?.let { it < 0f } ?: false
+            val offPlanRepeaters = creationState.repeaterPositions.filter { it.position.x < 0f }
+            val isGatewayHighlighted = uiState.guidedDevice?.isGateway == true &&
+                (creationState.gatewayPosition?.x ?: 0f) < 0f
+            val highlightedOffPlanRepIdx = if (!isGatewayHighlighted)
+                offPlanRepeaters.indexOfFirst { it.id == uiState.guidedDevice?.deviceId }
+                    .takeIf { it >= 0 }
+            else null
             Column(modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
@@ -227,13 +234,15 @@ fun MeasureScreen(
                     )
                 }
                 HorsPlanMeasureZone(
-                    gatewayOffPlan       = (creationState.gatewayPosition?.x ?: 0f) < 0f,
-                    offPlanRepeaterCount = creationState.repeaterPositions.count { it.position.x < 0f },
-                    repeaterStartIndex   = creationState.repeaterPositions.count { it.position.x >= 0f } + 1,
-                    isPendingOffPlan     = isPendingOffPlan,
-                    isLoading            = uiState.isLoading,
-                    onTap                = { viewModel.selectPosition(-1f, -1f) },
-                    modifier             = Modifier
+                    gatewayOffPlan              = (creationState.gatewayPosition?.x ?: 0f) < 0f,
+                    offPlanRepeaterCount        = offPlanRepeaters.size,
+                    repeaterStartIndex          = creationState.repeaterPositions.count { it.position.x >= 0f } + 1,
+                    isGatewayHighlighted        = isGatewayHighlighted,
+                    highlightedOffPlanRepIdx    = highlightedOffPlanRepIdx,
+                    isPendingOffPlan            = isPendingOffPlan,
+                    isLoading                   = uiState.isLoading,
+                    onTap                       = { viewModel.selectPosition(-1f, -1f) },
+                    modifier                    = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = AppSpacing.LG)
                         .padding(horizontal = 14.dp)
@@ -725,38 +734,60 @@ private fun DevicePin(
     density: androidx.compose.ui.unit.Density,
     index: Int? = null
 ) {
-    val sizeDp  = 28.dp
-    val sizePx  = with(density) { sizeDp.toPx() }
-    val offsetX = (x * imageSize.width  - sizePx / 2).roundToInt()
-    val offsetY = (y * imageSize.height - sizePx / 2).roundToInt()
+    // Zone de layout plus grande quand actif pour loger l'anneau extérieur
+    val containerDp = if (isHighlighted) 68.dp else 28.dp
+    val containerPx = with(density) { containerDp.toPx() }
+    val offsetX = (x * imageSize.width  - containerPx / 2).roundToInt()
+    val offsetY = (y * imageSize.height - containerPx / 2).roundToInt()
 
     val pulseTransition = rememberInfiniteTransition(label = "device_pulse")
-    val pulseAlpha by pulseTransition.animateFloat(
-        initialValue  = 0.4f,
-        targetValue   = 1f,
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue  = 0.6f,
+        targetValue   = 1.4f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(800, easing = FastOutSlowInEasing),
+            animation  = tween(480, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "device_alpha"
+        label = "device_scale"
+    )
+    val ringAlpha by pulseTransition.animateFloat(
+        initialValue  = 0.5f,
+        targetValue   = 0f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(480, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ring_alpha"
     )
 
     Box(
         modifier = Modifier
             .offset { IntOffset(offsetX, offsetY) }
-            .size(sizeDp),
+            .size(containerDp),
         contentAlignment = Alignment.Center
     ) {
+        // Anneau pulsant extérieur (uniquement quand c'est son tour)
+        if (isHighlighted) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { scaleX = pulseScale; scaleY = pulseScale }
+                    .background(color.copy(alpha = ringAlpha), AppShape.Circle)
+            )
+        }
+
+        // Pin principal (plus grand + coloré quand actif)
+        val innerDp = if (isHighlighted) 36.dp else 28.dp
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .size(innerDp)
                 .background(
-                    color = if (isHighlighted) color.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.85f),
+                    color = if (isHighlighted) color else Color.White.copy(alpha = 0.85f),
                     shape = AppShape.Circle
                 )
                 .border(
                     width = if (isHighlighted) 2.5.dp else 1.5.dp,
-                    color = if (isHighlighted) color.copy(alpha = pulseAlpha) else color.copy(alpha = 0.7f),
+                    color = if (isHighlighted) Color.White.copy(alpha = 0.7f) else color.copy(alpha = 0.7f),
                     shape = AppShape.Circle
                 ),
             contentAlignment = Alignment.Center
@@ -765,14 +796,19 @@ private fun DevicePin(
                 imageVector = icon,
                 contentDescription = null,
                 tint = if (isHighlighted) Color.White else color,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(if (isHighlighted) 20.dp else 14.dp)
             )
         }
+
+        // Badge numéro : calé sur le coin supérieur-gauche du cercle intérieur
         if (index != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                    .offset {
+                        val pad = ((containerDp - innerDp) / 2).roundToPx()
+                        IntOffset(pad, pad - 8.dp.roundToPx())
+                    }
                     .size(14.dp)
                     .background(Color(0xFFAEAEB2), AppShape.Circle)
                     .border(1.5.dp, Color.White, AppShape.Circle),
@@ -840,96 +876,121 @@ private fun HorsPlanMeasureZone(
     gatewayOffPlan: Boolean,
     offPlanRepeaterCount: Int,
     repeaterStartIndex: Int = 1,
+    isGatewayHighlighted: Boolean = false,
+    highlightedOffPlanRepIdx: Int? = null,
     isPendingOffPlan: Boolean,
     isLoading: Boolean,
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "zone_pulse")
-    val pulseScale by pulseTransition.animateFloat(
-        initialValue  = 1f,
+    // Animation pour le device dont c'est le tour
+    val deviceScale by pulseTransition.animateFloat(
+        initialValue  = 0.6f,
         targetValue   = 1.4f,
-        animationSpec = infiniteRepeatable(
-            animation  = tween(700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "zone_pulse_scale"
+        animationSpec = infiniteRepeatable(tween(480, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label         = "device_scale"
+    )
+    val deviceRingAlpha by pulseTransition.animateFloat(
+        initialValue  = 0.5f,
+        targetValue   = 0f,
+        animationSpec = infiniteRepeatable(tween(480, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label         = "device_ring_alpha"
     )
 
     val isEmpty     = !gatewayOffPlan && offPlanRepeaterCount == 0
-    val borderColor = if (isPendingOffPlan) AppColors.Accent else Color.Black
-    val bgColor     = if (isPendingOffPlan) AppColors.Accent.copy(alpha = 0.07f) else Color.Transparent
+    val anyHighlighted = isGatewayHighlighted || highlightedOffPlanRepIdx != null
+    val borderColor = when {
+        anyHighlighted   -> AppColors.SignalFair
+        isPendingOffPlan -> AppColors.Accent
+        else             -> Color.Black
+    }
+    val bgColor = when {
+        anyHighlighted   -> AppColors.SignalFair.copy(alpha = 0.06f)
+        isPendingOffPlan -> AppColors.Accent.copy(alpha = 0.07f)
+        else             -> Color.Transparent
+    }
 
     Box(
         modifier = modifier
             .height(64.dp)
             .background(bgColor, AppShape.Medium)
-            .border(1.5.dp, borderColor.copy(alpha = if (isPendingOffPlan) 0.5f else 1f), AppShape.Medium)
+            .border(1.5.dp, borderColor.copy(alpha = if (anyHighlighted || isPendingOffPlan) 0.5f else 1f), AppShape.Medium)
             .pointerInput(Unit) { detectTapGestures { onTap() } },
         contentAlignment = Alignment.Center
     ) {
-        if (isEmpty && !isPendingOffPlan) {
+        if (isEmpty) {
             Text("Hors plan", style = AppType.ControlLabel, color = AppColors.TextMuted)
         } else {
             Row(
                 verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)
             ) {
-                // Point pulsant si une mesure est en attente ici
-                if (isPendingOffPlan) {
-                    val dotScale = if (isLoading) pulseScale else 1f
-                    Box(
-                        modifier = Modifier
-                            .size(18.dp * dotScale)
-                            .background(
-                                color = AppColors.Accent.copy(alpha = if (isLoading) 0.55f else 0.8f),
-                                shape = AppShape.Circle
-                            )
-                            .border(2.dp, Color.White, AppShape.Circle)
-                    )
-                }
-                // Pin gateway (pas de badge numéro, un seul)
+                // Pin gateway
                 if (gatewayOffPlan) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(Color.White, AppShape.Circle)
-                            .border(2.dp, AppColors.Accent, AppShape.Circle),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector        = Icons.Outlined.Router,
-                            contentDescription = null,
-                            tint               = AppColors.Accent,
-                            modifier           = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                // Pins répéteurs avec badge numéroté (lecture seule, pas de ✕)
-                repeat(offPlanRepeaterCount.coerceAtMost(4)) { i ->
-                    Box(
-                        modifier = Modifier.size(36.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    val pinColor = AppColors.Accent
+                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        if (isGatewayHighlighted) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { scaleX = deviceScale; scaleY = deviceScale }
+                                    .background(pinColor.copy(alpha = deviceRingAlpha), AppShape.Circle)
+                            )
+                        }
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
-                                .background(Color.White, AppShape.Circle)
-                                .border(2.dp, AppColors.SignalFair, AppShape.Circle),
+                                .size(if (isGatewayHighlighted) 36.dp else 32.dp)
+                                .background(if (isGatewayHighlighted) pinColor else Color.White, AppShape.Circle)
+                                .border(2.dp, if (isGatewayHighlighted) Color.White.copy(alpha = 0.6f) else pinColor, AppShape.Circle),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector        = Icons.Outlined.Router,
+                                contentDescription = null,
+                                tint               = if (isGatewayHighlighted) Color.White else pinColor,
+                                modifier           = Modifier.size(if (isGatewayHighlighted) 20.dp else 18.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Pins répéteurs avec badge numéroté
+                repeat(offPlanRepeaterCount.coerceAtMost(4)) { i ->
+                    val isThisHighlighted = highlightedOffPlanRepIdx == i
+                    val repColor = AppColors.SignalFair
+                    Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+                        if (isThisHighlighted) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { scaleX = deviceScale; scaleY = deviceScale }
+                                    .background(repColor.copy(alpha = deviceRingAlpha), AppShape.Circle)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(if (isThisHighlighted) 36.dp else 32.dp)
+                                .background(if (isThisHighlighted) repColor else Color.White, AppShape.Circle)
+                                .border(2.dp, if (isThisHighlighted) Color.White.copy(alpha = 0.6f) else repColor, AppShape.Circle),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector        = Icons.Outlined.SettingsInputAntenna,
                                 contentDescription = null,
-                                tint               = AppColors.SignalFair,
-                                modifier           = Modifier.size(18.dp)
+                                tint               = if (isThisHighlighted) Color.White else repColor,
+                                modifier           = Modifier.size(if (isThisHighlighted) 20.dp else 18.dp)
                             )
                         }
-                        // Badge numéro — haut gauche
+                        // Badge numéro — calé sur le coin du cercle intérieur
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
-                                .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                                .offset {
+                                    val pinDp = if (isThisHighlighted) 36.dp else 32.dp
+                                    val pad   = ((56.dp - pinDp) / 2).roundToPx()
+                                    IntOffset(pad, pad - 8.dp.roundToPx())
+                                }
                                 .size(14.dp)
                                 .background(Color(0xFFAEAEB2), AppShape.Circle)
                                 .border(1.5.dp, Color.White, AppShape.Circle),
@@ -943,11 +1004,16 @@ private fun HorsPlanMeasureZone(
                         }
                     }
                 }
+
                 if (!isEmpty) {
                     Text(
                         text  = "Hors plan",
                         style = AppType.ControlLabel,
-                        color = if (isPendingOffPlan) AppColors.Accent else AppColors.TextSecondary
+                        color = when {
+                            anyHighlighted   -> AppColors.SignalFair
+                            isPendingOffPlan -> AppColors.Accent
+                            else             -> AppColors.TextSecondary
+                        }
                     )
                 }
             }
