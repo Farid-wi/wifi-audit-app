@@ -183,7 +183,6 @@ fun MeasureScreen(
             StepHeader(currentStep = 5, onBack = onBack)
 
             MeasureHeader(
-                count         = uiState.measurementCount,
                 isGuidedPhase = uiState.guidedDevice != null,
                 scanMode      = uiState.scanMode,
                 modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
@@ -318,7 +317,6 @@ fun StepProgressBar(currentStep: Int, totalSteps: Int, modifier: Modifier = Modi
 
 @Composable
 private fun MeasureHeader(
-    count: Int,
     isGuidedPhase: Boolean,
     scanMode: com.wifiaudit.app.domain.model.ScanMode,
     modifier: Modifier = Modifier
@@ -336,20 +334,7 @@ private fun MeasureHeader(
             )
             ScanModeChip(scanMode = scanMode)
         }
-        Spacer(Modifier.height(AppSpacing.SM))
-        MeasureGauge(count = count)
     }
-}
-
-/** Compteur de mesures effectuées. */
-@Composable
-private fun MeasureGauge(count: Int) {
-    val color = if (count > 0) AppColors.SignalGood else AppColors.Accent
-    Text(
-        text  = if (count == 0) "Aucune mesure" else "$count mesure${if (count > 1) "s" else ""}",
-        style = AppType.BodyEmphasis,
-        color = color
-    )
 }
 
 /** Petite puce (lecture seule) indiquant le mode actif. */
