@@ -60,6 +60,12 @@ class AuditRepositoryImpl @Inject constructor(
             entity.toDomain(measurements)
         }
 
+    override suspend fun getAuditById(id: String): Audit? {
+        val entity = auditDao.getById(id) ?: return null
+        val measurements = measurementDao.getForAudit(id)
+        return entity.toDomain(measurements)
+    }
+
     // ─── Écriture locale ─────────────────────────────────────────────────────
 
     override suspend fun saveAudit(audit: Audit) {

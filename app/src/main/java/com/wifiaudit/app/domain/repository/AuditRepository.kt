@@ -9,4 +9,5 @@ interface AuditRepository {
     suspend fun saveAudit(audit: Audit)
     suspend fun submitAudit(audit: Audit): Result<Unit>
     suspend fun getPendingAudits(): List<Audit>
+    suspend fun getAuditById(id: String): Audit?
 }

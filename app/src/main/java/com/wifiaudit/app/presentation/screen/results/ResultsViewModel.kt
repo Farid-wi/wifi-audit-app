@@ -1,9 +1,11 @@
 package com.wifiaudit.app.presentation.screen.results
 
 import android.util.Log
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.wifiaudit.app.domain.model.Audit
+import com.wifiaudit.app.domain.model.AuditStatus
 import com.wifiaudit.app.domain.model.CanvasRoom
 import com.wifiaudit.app.domain.model.OverallScore
 import com.wifiaudit.app.domain.model.Recommendation
@@ -62,6 +64,7 @@ data class ResultsUiState(
 
 @HiltViewModel
 class ResultsViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val auditRepository: AuditRepository,
     private val generateHeatmapUseCase: GenerateHeatmapUseCase,
     private val generateRecommendationsUseCase: GenerateRecommendationsUseCase,
@@ -73,8 +76,10 @@ class ResultsViewModel @Inject constructor(
 
     private var currentAudit: Audit? = null
 
+    private val targetAuditId: String? = savedStateHandle["auditId"]
+
     init {
-        loadLatestAudit()
+        if (targetAuditId != null) loadAuditById(targetAuditId) else loadLatestAudit()
     }
 
     /** Sélectionne une bande de fréquences (null = toutes/bande connectée). */
@@ -194,6 +199,30 @@ class ResultsViewModel @Inject constructor(
                     _uiState.update { it.copy(deviceBssidMap = deviceBssidMap) }
                     computeAndUpdateResults(audit, _uiState.value.selectedBand, null)
                 }
+            }
+        }
+    }
+
+    private fun loadAuditById(id: String) {
+        viewModelScope.launch {
+            val audit = auditRepository.getAuditById(id) ?: run {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
+            currentAudit = audit
+            val availableBands = computeAvailableBands(audit)
+            _uiState.update {
+                it.copy(
+                    availableBands = availableBands,
+                    submitState = if (audit.status == AuditStatus.SYNCED) SubmitState.Success else SubmitState.Idle
+                )
+            }
+            launch(Dispatchers.Default) {
+                val deviceBssidMap = generateHeatmapUseCase.associateDevices(
+                    audit.measurements, audit.gatewayPosition, audit.repeaterPositions
+                )
+                _uiState.update { it.copy(deviceBssidMap = deviceBssidMap) }
+                computeAndUpdateResults(audit, null, null)
             }
         }
     }

@@ -94,6 +94,7 @@ import androidx.compose.foundation.Image
 @Composable
 fun ResultsScreen(
     onNewAudit: () -> Unit,
+    onBack: (() -> Unit)? = null,
     viewModel: ResultsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -116,7 +117,7 @@ fun ResultsScreen(
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepHeader(currentStep = 6)
+        StepHeader(currentStep = 6, onBack = onBack)
 
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

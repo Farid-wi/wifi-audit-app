@@ -8,11 +8,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.equipment.EquipmentPlacementScreen
+import com.wifiaudit.app.presentation.screen.home.HomeScreen
 import com.wifiaudit.app.presentation.screen.measure.MeasureScreen
 import com.wifiaudit.app.presentation.screen.measure.ScanModeScreen
 import com.wifiaudit.app.presentation.screen.network.NetworkSelectionScreen
@@ -20,6 +23,7 @@ import com.wifiaudit.app.presentation.screen.plan.PlanCaptureScreen
 import com.wifiaudit.app.presentation.screen.results.ResultsScreen
 
 sealed class Screen(val route: String) {
+    data object Home      : Screen("home")
     data object Plan      : Screen("plan")
     data object Equipment : Screen("equipment")
     data object Network   : Screen("network")
@@ -35,12 +39,23 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
     NavHost(
         navController    = navController,
-        startDestination = Screen.Plan.route,
+        startDestination = Screen.Home.route,
         enterTransition  = { slideInHorizontally(tween(500)) { it }  + fadeIn(tween(500))  },
         exitTransition   = { slideOutHorizontally(tween(350)) { -it } + fadeOut(tween(350)) },
         popEnterTransition  = { slideInHorizontally(tween(500)) { -it } + fadeIn(tween(500))  },
         popExitTransition   = { slideOutHorizontally(tween(350)) { it }  + fadeOut(tween(350)) }
     ) {
+        composable(Screen.Home.route) {
+            HomeScreen(
+                onNewAudit  = {
+                    auditCreationViewModel.reset()
+                    navController.navigate(Screen.Plan.route)
+                },
+                onOpenAudit = { auditId ->
+                    navController.navigate("${Screen.Results.route}?auditId=$auditId")
+                }
+            )
+        }
         composable(Screen.Plan.route) {
             PlanCaptureScreen(
                 auditCreationViewModel = auditCreationViewModel,
@@ -74,17 +89,20 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
                 onBack = { navController.popBackStack() }
             )
         }
-        composable(Screen.Results.route) {
+        // Results: optional auditId — null = latest (new audit), non-null = past audit from Home
+        composable(
+            route     = "${Screen.Results.route}?auditId={auditId}",
+            arguments = listOf(navArgument("auditId") { nullable = true; defaultValue = null; type = NavType.StringType })
+        ) { entry ->
+            val auditId = entry.arguments?.getString("auditId")
             ResultsScreen(
                 onNewAudit = {
-                    // Le VM partagé (scope Activity) survit à la navigation → on le réinitialise.
                     auditCreationViewModel.reset()
-                    // On recrée une destination Plan NEUVE (popUpTo inclusive) pour repartir d'un
-                    // PlanCaptureViewModel vierge — sinon l'ancien plan dessiné resterait affiché.
                     navController.navigate(Screen.Plan.route) {
-                        popUpTo(Screen.Plan.route) { inclusive = true }
+                        popUpTo(Screen.Home.route)
                     }
-                }
+                },
+                onBack = auditId?.let { { navController.popBackStack() } }
             )
         }
     }
