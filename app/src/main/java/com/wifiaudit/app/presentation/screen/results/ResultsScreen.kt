@@ -37,8 +37,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -98,6 +104,19 @@ fun ResultsScreen(
     viewModel: ResultsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Dialog nom de l'audit avant enregistrement
+    var showSaveDialog by remember { mutableStateOf(false) }
+    if (showSaveDialog) {
+        SaveAuditDialog(
+            initialName = uiState.auditSsid,
+            onDismiss   = { showSaveDialog = false },
+            onConfirm   = { name ->
+                showSaveDialog = false
+                viewModel.submitAudit(name)
+            }
+        )
+    }
 
     // Confirmation avant de repartir de zéro (les résultats affichés seront perdus).
     var showNewAuditConfirm by remember { mutableStateOf(false) }
@@ -223,7 +242,7 @@ fun ResultsScreen(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)
         ) {
             Button(
-                onClick = { viewModel.submitAudit() },
+                onClick = { showSaveDialog = true },
                 interactionSource = submitSource,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -258,6 +277,51 @@ fun ResultsScreen(
             }
         }
     }
+}
+
+// ─── Dialog saisie nom de l'audit ────────────────────────────────────────────
+
+@Composable
+private fun SaveAuditDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nommer cet audit", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        text  = {
+            OutlinedTextField(
+                value           = name,
+                onValueChange   = { name = it },
+                placeholder     = { Text("Ex : Maison printemps 2025", style = AppType.BodyPrimary, color = AppColors.TextMeta) },
+                singleLine      = true,
+                shape           = AppShape.Medium,
+                modifier        = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (name.isNotBlank()) onConfirm(name) })
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick   = { onConfirm(name.ifBlank { initialName }) },
+                shape     = AppShape.Pill,
+                colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                elevation = ButtonDefaults.buttonElevation(0.dp)
+            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+            }
+        },
+        containerColor = AppColors.Surface,
+        shape          = AppShape.Large
+    )
 }
 
 // ─── Confirmation « Nouvel audit » ────────────────────────────────────────────

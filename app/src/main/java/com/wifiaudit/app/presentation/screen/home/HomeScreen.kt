@@ -212,10 +212,17 @@ private fun AuditCard(
         // ── Corps de la carte ─────────────────────────────────────────────────
         Column(modifier = Modifier.weight(1f).padding(vertical = AppSpacing.MD)) {
             Text(
-                text = item.ssid.ifBlank { "Réseau inconnu" },
+                text = if (item.name.isNotBlank()) item.name else item.ssid.ifBlank { "Réseau inconnu" },
                 style = AppType.BodyEmphasis,
                 color = AppColors.TextPrimary
             )
+            if (item.name.isNotBlank()) {
+                Text(
+                    text = item.ssid,
+                    style = AppType.Micro,
+                    color = AppColors.TextMeta
+                )
+            }
             Spacer(Modifier.height(AppSpacing.XS))
             Text(
                 text = dateStr,

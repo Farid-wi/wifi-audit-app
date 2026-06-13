@@ -52,6 +52,8 @@ data class ResultsUiState(
     val gatewayPosition: com.wifiaudit.app.domain.model.Position?          = null,
     val repeaterPositions: List<com.wifiaudit.app.domain.model.RepeaterPosition> = emptyList(),
     val submitState: SubmitState                            = SubmitState.Idle,
+    /** SSID de l'audit — pré-remplit le dialog "Enregistrer mon audit". */
+    val auditSsid: String                                   = "",
     /** Bandes disponibles pour la vue courante (toutes si aucun appareil sélectionné). */
     val availableBands: List<String>                        = emptyList(),
     /** Bande sélectionnée, ou null = bande connectée. */
@@ -153,7 +155,7 @@ class ResultsViewModel @Inject constructor(
                 })
 
                 val availableBands = computeAvailableBands(audit)
-                _uiState.update { it.copy(availableBands = availableBands) }
+                _uiState.update { it.copy(availableBands = availableBands, auditSsid = audit.ssid) }
 
                 launch(Dispatchers.Default) {
                     val deviceBssidMap = generateHeatmapUseCase.associateDevices(
@@ -214,7 +216,8 @@ class ResultsViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     availableBands = availableBands,
-                    submitState = if (audit.status == AuditStatus.SYNCED) SubmitState.Success else SubmitState.Idle
+                    auditSsid      = audit.ssid,
+                    submitState    = if (audit.status == AuditStatus.SYNCED) SubmitState.Success else SubmitState.Idle
                 )
             }
             launch(Dispatchers.Default) {
@@ -281,17 +284,20 @@ class ResultsViewModel @Inject constructor(
             audit.measurements.any { m -> m.rssiPerBand.containsKey(band) }
         }
 
-    fun submitAudit() {
+    fun submitAudit(name: String) {
         if (_uiState.value.submitState == SubmitState.Loading) return
         viewModelScope.launch {
             _uiState.update { it.copy(submitState = SubmitState.Loading) }
-            val audit = auditRepository.observeAudits().first().firstOrNull()
+            val audit = (currentAudit ?: auditRepository.observeAudits().first().firstOrNull())
+                ?.copy(name = name.trim())
             if (audit == null) {
                 Log.e(TAG, "submitAudit: aucun audit en base")
                 _uiState.update { it.copy(submitState = SubmitState.Error) }
                 return@launch
             }
-            Log.d(TAG, "Envoi audit ${audit.id} — ${audit.measurements.size} mesures → ${audit.ssid}")
+            auditRepository.saveAudit(audit)
+            currentAudit = audit
+            Log.d(TAG, "Envoi audit ${audit.id} nom=\"${audit.name}\" — ${audit.measurements.size} mesures → ${audit.ssid}")
             submitAuditUseCase(audit).fold(
                 onSuccess = {
                     Log.d(TAG, "Envoi réussi")

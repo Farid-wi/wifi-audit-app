@@ -19,6 +19,7 @@ import javax.inject.Inject
 data class AuditListItem(
     val id: String,
     val createdAt: Long,
+    val name: String,
     val ssid: String,
     val roomCount: Int,
     val measurementCount: Int,
@@ -67,6 +68,7 @@ class HomeViewModel @Inject constructor(
         return AuditListItem(
             id               = id,
             createdAt        = createdAt,
+            name             = name,
             ssid             = ssid,
             roomCount        = rooms.size,
             measurementCount = onPlanMeasurements.size,

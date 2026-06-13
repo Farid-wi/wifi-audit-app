@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 data class AuditEntity(
     @PrimaryKey val id: String,
     val createdAt: Long,
+    val name: String = "",
     val ssid: String,
     val planImagePath: String,
     val gatewayX: Float,

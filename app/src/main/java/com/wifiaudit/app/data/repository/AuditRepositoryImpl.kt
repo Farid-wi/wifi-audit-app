@@ -105,6 +105,7 @@ class AuditRepositoryImpl @Inject constructor(
         return Audit(
             id                 = id,
             createdAt          = createdAt,
+            name               = name,
             ssid               = ssid,
             planImagePath      = planImagePath,
             gatewayPosition    = Position(gatewayX, gatewayY),
@@ -145,6 +146,7 @@ class AuditRepositoryImpl @Inject constructor(
     private fun Audit.toEntity() = AuditEntity(
         id                    = id,
         createdAt             = createdAt,
+        name                  = name,
         ssid                  = ssid,
         planImagePath         = planImagePath,
         gatewayX              = gatewayPosition.x,

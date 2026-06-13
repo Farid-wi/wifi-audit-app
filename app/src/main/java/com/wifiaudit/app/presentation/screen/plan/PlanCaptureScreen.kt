@@ -635,12 +635,17 @@ private fun DiagnosticAuditRow(audit: AuditListItem, onClick: () -> Unit) {
         )
         Column(Modifier.weight(1f)) {
             Text(
-                audit.ssid, style = AppType.BodyEmphasis, color = AppColors.TextPrimary,
+                if (audit.name.isNotBlank()) audit.name else audit.ssid,
+                style = AppType.BodyEmphasis, color = AppColors.TextPrimary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis
             )
             Text(
-                "$dateStr · ${audit.roomCount} pièce${if (audit.roomCount > 1) "s" else ""} · ${audit.measurementCount} mesure${if (audit.measurementCount > 1) "s" else ""}",
-                style = AppType.Micro, color = AppColors.TextMuted
+                buildString {
+                    if (audit.name.isNotBlank()) append("${audit.ssid} · ")
+                    append("$dateStr · ${audit.roomCount} pièce${if (audit.roomCount > 1) "s" else ""} · ${audit.measurementCount} mesure${if (audit.measurementCount > 1) "s" else ""}")
+                },
+                style = AppType.Micro, color = AppColors.TextMuted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
         Icon(

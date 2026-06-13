@@ -7,6 +7,7 @@ enum class AuditStatus { DRAFT, PENDING, SYNCED }
 data class Audit(
     val id: String                          = UUID.randomUUID().toString(),
     val createdAt: Long                     = System.currentTimeMillis(),
+    val name: String                        = "",
     val ssid: String,
     val planImagePath: String,
     val gatewayPosition: Position,

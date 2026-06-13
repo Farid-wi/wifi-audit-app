@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.room.Room
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.wifiaudit.app.data.local.MIGRATION_8_9
 import com.wifiaudit.app.data.local.WifiAuditDatabase
 import com.wifiaudit.app.data.remote.NetworkConfig
 import com.wifiaudit.app.data.remote.api.AuditApiService
@@ -70,6 +71,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): WifiAuditDatabase =
         Room.databaseBuilder(context, WifiAuditDatabase::class.java, "wifi_audits.db")
+            .addMigrations(MIGRATION_8_9)
             .fallbackToDestructiveMigration()
             .build()
 
