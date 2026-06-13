@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
@@ -325,58 +326,74 @@ private fun OffFloorGatewayZone(
                     Box(
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color.White, AppShape.Circle)
-                            .border(2.dp, AppColors.Accent, AppShape.Circle)
                             .pointerInput(Unit) { detectTapGestures { } },
-                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Outlined.Router, contentDescription = null,
-                             tint = AppColors.Accent, modifier = Modifier.size(18.dp))
+                        EquipmentPinCircle(EquipmentType.GATEWAY)
                     }
                 }
                 repeat(offFloorRepeaterCount) { index ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    Box(
+                        modifier = Modifier.size(36.dp),
+                        contentAlignment = Alignment.Center
                     ) {
+                        Box(Modifier
+                            .size(32.dp)
+                            .pointerInput(Unit) { detectTapGestures { } }
+                        ) {
+                            EquipmentPinCircle(EquipmentType.REPEATER)
+                        }
+                        // Badge numéro — haut gauche
                         Box(
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                                .size(14.dp)
+                                .background(Color(0xFFAEAEB2), AppShape.Circle)
+                                .border(1.5.dp, Color.White, AppShape.Circle),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .background(Color.White, AppShape.Circle)
-                                    .border(2.dp, AppColors.SignalFair, AppShape.Circle)
-                                    .pointerInput(Unit) { detectTapGestures { } },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.SettingsInputAntenna, contentDescription = null,
-                                     tint = AppColors.SignalFair, modifier = Modifier.size(18.dp))
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
-                                    .size(14.dp)
-                                    .background(AppColors.SignalPoor, AppShape.Circle)
-                                    .border(1.5.dp, Color.White, AppShape.Circle)
-                                    .pointerInput(Unit) { detectTapGestures { onRemoveRepeater() } },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Close, contentDescription = null,
-                                     tint = Color.White, modifier = Modifier.size(8.dp))
-                            }
+                            Text(
+                                "${index + 1}",
+                                color = Color.White,
+                                style = AppType.ControlLabel.copy(fontSize = 8.sp)
+                            )
                         }
-                        Text(
-                            "${index + 1}",
-                            style = AppType.ControlLabel,
-                            color = AppColors.TextMuted
-                        )
+                        // Badge ✕ — haut droite
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                                .size(14.dp)
+                                .background(AppColors.SignalPoor, AppShape.Circle)
+                                .border(1.5.dp, Color.White, AppShape.Circle)
+                                .pointerInput(Unit) { detectTapGestures { onRemoveRepeater() } },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = null,
+                                 tint = Color.White, modifier = Modifier.size(8.dp))
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EquipmentPinCircle(type: EquipmentType) {
+    val (icon, color) = when (type) {
+        EquipmentType.GATEWAY   -> Icons.Outlined.Router               to AppColors.Accent
+        EquipmentType.REPEATER  -> Icons.Outlined.SettingsInputAntenna to AppColors.SignalFair
+        EquipmentType.MESH_NODE -> Icons.Outlined.Hub                  to AppColors.SignalGood
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White, AppShape.Circle)
+            .border(2.dp, color, AppShape.Circle),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -414,12 +431,6 @@ private fun DraggableEquipmentPin(
     val ox = (x * imageSize.width  - sizePx / 2).roundToInt()
     val oy = (y * imageSize.height - sizePx / 2).roundToInt()
 
-    val (icon, color) = when (type) {
-        EquipmentType.GATEWAY   -> Icons.Outlined.Router               to AppColors.Accent
-        EquipmentType.REPEATER  -> Icons.Outlined.SettingsInputAntenna to AppColors.SignalFair
-        EquipmentType.MESH_NODE -> Icons.Outlined.Hub                  to AppColors.SignalGood
-    }
-
     Box(
         modifier = Modifier
             .offset { IntOffset(ox, oy) }
@@ -432,19 +443,10 @@ private fun DraggableEquipmentPin(
                     }
                 }
             }
-            // Absorbe le tap pour éviter d'ajouter un équipement sous le pin.
             .pointerInput(type) { detectTapGestures { } },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(sizeDp)
-                .background(Color.White, AppShape.Circle)
-                .border(2.dp, color, AppShape.Circle),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
-        }
+        EquipmentPinCircle(type)
 
         if (onDelete != null) {
             Box(
