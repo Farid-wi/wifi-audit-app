@@ -80,6 +80,7 @@ import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.RoomType
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.presentation.screen.common.StepHeader
+import com.wifiaudit.app.presentation.screen.common.planBackdrop
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -736,7 +737,7 @@ private fun MeasureCanvasPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modi
     val density = LocalDensity.current
     Box(
         modifier = modifier
-            .background(Color.White)
+            .planBackdrop()
             .onSizeChanged { size = it }
     ) {
         if (size != IntSize.Zero) {
@@ -750,8 +751,8 @@ private fun MeasureCanvasPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modi
                     modifier = Modifier
                         .offset { IntOffset(lPx, tPx) }
                         .size(wDp, hDp)
-                        .background(color.copy(alpha = 0.14f), AppShape.Small)
-                        .border(1.dp, color.copy(alpha = 0.50f), AppShape.Small),
+                        .background(color.copy(alpha = 0.14f), AppShape.Medium)
+                        .border(1.dp, color.copy(alpha = 0.50f), AppShape.Medium),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(room.label, style = AppType.ControlLabel, color = color,

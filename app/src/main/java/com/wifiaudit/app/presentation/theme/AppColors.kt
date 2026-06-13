@@ -19,6 +19,11 @@ object AppColors {
     val Border     = Color(0xFFD2D2D7)
     val BorderSoft = Color(0xFFE8E8ED)
 
+    // Conteneur de plan (le « héros » de l'app) — surface légèrement teintée + grille de points.
+    val PlanSurface = Color(0xFFFCFCFD)
+    val PlanBorder  = Color(0xFFE4E7EC)
+    val PlanDot     = Color(0xFFE4E7EC)
+
     val Accent       = Color(0xFF0071E3)
     val AccentHover  = Color(0xFF0077ED)
     val AccentActive = Color(0xFF0066CC)

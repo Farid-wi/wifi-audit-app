@@ -103,6 +103,7 @@ import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.common.StepHeader
+import com.wifiaudit.app.presentation.screen.common.planBackdrop
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -676,8 +677,8 @@ private fun CanvasBuilderStep(
                     onUpdate = onUpdate,
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AppColors.Surface, AppShape.Large)
-                        .border(1.dp, AppColors.BorderSoft, AppShape.Large)
+                        .clip(AppShape.Large)
+                        .planBackdrop(withBorder = true)
                 )
             }
         }
@@ -763,13 +764,7 @@ private fun RoomCanvas(
                 }
             }
     ) {
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            val step = size.width / 10f
-            val gridColor = Color(0xFFD1D1D6)
-            var x = 0f; while (x <= size.width)  { drawLine(gridColor, androidx.compose.ui.geometry.Offset(x, 0f),    androidx.compose.ui.geometry.Offset(x, size.height), 0.5f); x += step }
-            var y = 0f; while (y <= size.height) { drawLine(gridColor, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y),    0.5f); y += step }
-        }
-
+        // Le fond + la grille de points sont fournis par planBackdrop() sur le conteneur.
         if (rooms.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("Appuyez sur un type de pièce ci-dessus",
@@ -792,10 +787,10 @@ private fun RoomCanvas(
                     modifier = Modifier
                         .offset { IntOffset(lPx, tPx) }
                         .size(wDp, hDp)
-                        .background(color.copy(alpha = if (isSelected) 0.20f else 0.12f), AppShape.Small)
+                        .background(color.copy(alpha = if (isSelected) 0.20f else 0.12f), AppShape.Medium)
                         .border(if (isSelected) 2.dp else 1.dp,
                                 if (isSelected) color else color.copy(alpha = 0.45f),
-                                AppShape.Small)
+                                AppShape.Medium)
                         .pointerInput(room.id, canvasSize) {
                             detectDragGestures(
                                 onDragStart = { selectedId = room.id; renamingId = null }
