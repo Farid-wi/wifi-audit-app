@@ -214,7 +214,8 @@ fun MeasureScreen(
             }
 
             // ─── Plan interactif ──────────────────────────────────────────
-            Box(modifier = Modifier.weight(1f)) {
+            // Padding bas : le contenu du plan reste au-dessus du FAB « Mesurer ici ».
+            Box(modifier = Modifier.weight(1f).padding(bottom = 72.dp)) {
                 InteractivePlanView(
                     planImagePath      = uiState.planImagePath ?: "",
                     rooms              = creationState.rooms,
@@ -315,19 +316,44 @@ private fun MeasureHeader(
             )
             ScanModeChip(scanMode = scanMode, onClick = onModeClick)
         }
-        Spacer(Modifier.height(AppSpacing.XS))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "$count mesure${if (count > 1) "s" else ""}",
-                style = AppType.BodyEmphasis,
-                color = if (count >= MIN_MEASUREMENTS) AppColors.SignalGood else AppColors.Accent
-            )
-            Text(
-                text = "  —  Minimum recommandé : $MIN_MEASUREMENTS",
-                style = AppType.ControlLabel,
-                color = AppColors.TextMuted
-            )
+        Spacer(Modifier.height(AppSpacing.SM))
+        MeasureGauge(count = count)
+    }
+}
+
+/** Jauge de progression des mesures : ●●○○○ + libellé, verte une fois le minimum atteint. */
+@Composable
+private fun MeasureGauge(count: Int) {
+    val reached = count >= MIN_MEASUREMENTS
+    val activeColor = if (reached) AppColors.SignalGood else AppColors.Accent
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)) {
+            repeat(MIN_MEASUREMENTS) { i ->
+                val filled = i < count
+                Box(
+                    modifier = Modifier
+                        .size(11.dp)
+                        .background(
+                            if (filled) activeColor else Color.Transparent,
+                            AppShape.Circle
+                        )
+                        .border(
+                            1.5.dp,
+                            if (filled) activeColor else AppColors.Border,
+                            AppShape.Circle
+                        )
+                )
+            }
         }
+        Text(
+            text = if (reached) "$count mesures · minimum atteint"
+                   else "$count / $MIN_MEASUREMENTS mesures",
+            style = AppType.BodyEmphasis,
+            color = activeColor
+        )
     }
 }
 
