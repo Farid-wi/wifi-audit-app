@@ -351,14 +351,14 @@ private fun DraggableEquipmentPin(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(18.dp)
+                    .size(22.dp)
                     .background(AppColors.SignalPoor, AppShape.Circle)
-                    .border(1.5.dp, Color.White, AppShape.Circle)
+                    .border(2.dp, Color.White, AppShape.Circle)
                     .pointerInput(Unit) { detectTapGestures { onDelete() } },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Outlined.Close, contentDescription = "Retirer ce répéteur",
-                     tint = Color.White, modifier = Modifier.size(10.dp))
+                     tint = Color.White, modifier = Modifier.size(12.dp))
             }
         }
     }
