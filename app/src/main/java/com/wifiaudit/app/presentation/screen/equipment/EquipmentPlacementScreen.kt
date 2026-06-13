@@ -260,7 +260,8 @@ private fun EquipmentPlanView(
                 x = rx, y = ry, type = EquipmentType.REPEATER,
                 imageSize = planSize, density = density,
                 onMoveBy = { dx, dy -> onMoveRepeater(index, dx, dy) },
-                onDelete = { onRemoveRepeater(index) }
+                onDelete = { onRemoveRepeater(index) },
+                index = index + 1
             )
         }
     }
@@ -423,7 +424,8 @@ private fun DraggableEquipmentPin(
     imageSize: IntSize,
     density: androidx.compose.ui.unit.Density,
     onMoveBy: (dx: Float, dy: Float) -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    index: Int? = null
 ) {
     if (imageSize == IntSize.Zero) return
     val sizeDp = 32.dp
@@ -448,18 +450,34 @@ private fun DraggableEquipmentPin(
     ) {
         EquipmentPinCircle(type)
 
+        if (index != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                    .size(14.dp)
+                    .background(Color(0xFFAEAEB2), AppShape.Circle)
+                    .border(1.5.dp, Color.White, AppShape.Circle),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("$index", color = Color.White,
+                     style = AppType.ControlLabel.copy(fontSize = 8.sp))
+            }
+        }
+
         if (onDelete != null) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(22.dp)
+                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                    .size(14.dp)
                     .background(AppColors.SignalPoor, AppShape.Circle)
-                    .border(2.dp, Color.White, AppShape.Circle)
+                    .border(1.5.dp, Color.White, AppShape.Circle)
                     .pointerInput(Unit) { detectTapGestures { onDelete() } },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Outlined.Close, contentDescription = "Retirer ce répéteur",
-                     tint = Color.White, modifier = Modifier.size(12.dp))
+                     tint = Color.White, modifier = Modifier.size(8.dp))
             }
         }
     }
