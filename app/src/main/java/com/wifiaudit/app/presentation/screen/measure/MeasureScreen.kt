@@ -137,6 +137,10 @@ fun MeasureScreen(
         }
     }
 
+    // En mode expert, la phase libre ne nécessite ni FAB ni overlay plein écran
+    val isExpertFreePhase = uiState.scanMode == com.wifiaudit.app.domain.model.ScanMode.FAST &&
+        uiState.guidedDevice == null
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = AppColors.Background,
@@ -147,7 +151,7 @@ fun MeasureScreen(
         },
         floatingActionButton = {
             AnimatedVisibility(
-                visible = uiState.pendingPosition != null && !uiState.isLoading,
+                visible = !isExpertFreePhase && uiState.pendingPosition != null && !uiState.isLoading,
                 enter = fadeIn() + scaleIn(),
                 exit = fadeOut()
             ) {
@@ -220,16 +224,20 @@ fun MeasureScreen(
                         .padding(top = 14.dp, bottom = AppSpacing.XS)
                 ) {
                     InteractivePlanView(
-                        planImagePath     = uiState.planImagePath ?: "",
-                        rooms             = creationState.rooms,
-                        measurements      = uiState.measurements,
-                        pendingPosition   = uiState.pendingPosition?.takeIf { it.first >= 0f },
-                        isLoading         = uiState.isLoading,
-                        onTap             = { x, y -> viewModel.selectPosition(x, y) },
-                        gatewayPosition   = creationState.gatewayPosition?.takeIf { it.x >= 0f },
-                        repeaterPositions = creationState.repeaterPositions.filter { it.position.x >= 0f },
-                        guidedDeviceId    = uiState.guidedDevice?.deviceId,
-                        modifier          = Modifier.fillMaxSize()
+                        planImagePath        = uiState.planImagePath ?: "",
+                        rooms                = creationState.rooms,
+                        measurements         = uiState.measurements,
+                        pendingPosition      = uiState.pendingPosition?.takeIf { it.first >= 0f },
+                        isLoading            = uiState.isLoading,
+                        onTap                = { x, y ->
+                            if (isExpertFreePhase) viewModel.selectAndMeasure(x, y)
+                            else viewModel.selectPosition(x, y)
+                        },
+                        gatewayPosition      = creationState.gatewayPosition?.takeIf { it.x >= 0f },
+                        repeaterPositions    = creationState.repeaterPositions.filter { it.position.x >= 0f },
+                        guidedDeviceId       = uiState.guidedDevice?.deviceId,
+                        onRemoveMeasurement  = if (isExpertFreePhase) viewModel::removeMeasurement else null,
+                        modifier             = Modifier.fillMaxSize()
                     )
                 }
                 HorsPlanMeasureZone(
@@ -278,9 +286,8 @@ fun MeasureScreen(
         }
     }
 
-        // Overlay plein écran pendant la mesure — couvre header, bannière et FAB
-        // pour n'afficher qu'un seul message cohérent (« Restez immobile »).
-        if (uiState.isLoading) {
+        // Overlay plein écran uniquement hors mode expert libre (calibrage ou mode standard).
+        if (uiState.isLoading && !isExpertFreePhase) {
             MeasuringOverlay(
                 deviceLabel = uiState.guidedDevice?.label,
                 onCancel    = viewModel::cancelMeasurement
@@ -378,6 +385,7 @@ private fun InteractivePlanView(
     gatewayPosition: Position? = null,
     repeaterPositions: List<RepeaterPosition> = emptyList(),
     guidedDeviceId: String? = null,
+    onRemoveMeasurement: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val bitmap = remember(planImagePath) {
@@ -434,11 +442,12 @@ private fun InteractivePlanView(
         // Points de mesures enregistrés
         measurements.forEach { point ->
             MeasurementDot(
-                x = point.x,
-                y = point.y,
-                quality = point.quality,
-                imageSize = imageSize,
-                density = density
+                x           = point.x,
+                y           = point.y,
+                quality     = point.quality,
+                imageSize   = imageSize,
+                density     = density,
+                onLongPress = onRemoveMeasurement?.let { remove -> { remove(point.id) } }
             )
         }
 
@@ -486,10 +495,12 @@ private fun MeasurementDot(
     y: Float,
     quality: SignalQuality,
     imageSize: IntSize,
-    density: androidx.compose.ui.unit.Density
+    density: androidx.compose.ui.unit.Density,
+    onLongPress: (() -> Unit)? = null
 ) {
     if (imageSize == IntSize.Zero) return
-    val dotSizeDp = 14.dp
+    // Dot légèrement plus grand en mode expert (supprimable) pour faciliter le long-press
+    val dotSizeDp = if (onLongPress != null) 18.dp else 14.dp
     val dotSizePx = with(density) { dotSizeDp.toPx() }
 
     val offsetX = (x * imageSize.width - dotSizePx / 2).roundToInt()
@@ -507,6 +518,11 @@ private fun MeasurementDot(
             .size(dotSizeDp)
             .background(color, AppShape.Circle)
             .border(2.dp, Color.White, AppShape.Circle)
+            .then(
+                if (onLongPress != null) Modifier.pointerInput(Unit) {
+                    detectTapGestures(onTap = { onLongPress() })
+                } else Modifier
+            )
     )
 }
 

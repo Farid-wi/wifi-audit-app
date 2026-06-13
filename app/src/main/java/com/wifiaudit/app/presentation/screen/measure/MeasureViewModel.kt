@@ -35,6 +35,7 @@ import kotlin.math.ceil
 private const val TAG = "WIFI_AUDIT"
 
 data class MeasurementPoint(
+    val id: String,
     val x: Float,
     val y: Float,
     val quality: SignalQuality
@@ -210,12 +211,23 @@ class MeasureViewModel @Inject constructor(
         _uiState.update { it.copy(pendingPosition = x to y, error = null) }
     }
 
+    /** Mode expert libre : tap = mesure immédiate sans attendre le bouton. */
+    fun selectAndMeasure(x: Float, y: Float) {
+        if (_uiState.value.isLoading) return
+        _uiState.update { it.copy(pendingPosition = x to y, error = null) }
+        launchMeasurement()
+    }
+
     fun takeMeasurement() {
         if (!_uiState.value.canMeasure) return
+        launchMeasurement()
+    }
+
+    private fun launchMeasurement() {
         val pos = _uiState.value.pendingPosition ?: return
-        // Capturer le device guidé AVANT le lancement de la coroutine (accès main thread)
         val currentGuided = guidedQueue.firstOrNull()
         val hint = currentGuided?.deviceId
+        val isExpertFreePhase = _uiState.value.scanMode == ScanMode.FAST && currentGuided == null
 
         measureJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
@@ -225,14 +237,9 @@ class MeasureViewModel @Inject constructor(
                     val finalMeasurement = measurement.copy(roomId = roomId)
                     fullMeasurements += finalMeasurement
 
-                    // Démarrer la cadence délibérée (feu rouge → vert au bout de l'intervalle)
                     lastMeasurementAt = SystemClock.elapsedRealtime()
-
-                    // Le moteur a pu basculer FAST → STANDARD si le throttling était en fait actif.
-                    // On détecte ce changement (la cadence est re-synchronisée) et on prévient l'user.
                     val fellBackToastMsg = detectModeFallback()
 
-                    // Avancer dans la file guidée après succès
                     if (currentGuided != null) guidedQueue.removeFirst()
                     val nextDevice = guidedQueue.firstOrNull()
 
@@ -246,15 +253,14 @@ class MeasureViewModel @Inject constructor(
 
                     _uiState.update { s ->
                         s.copy(
-                            isLoading    = false,
-                            guidedDevice = nextDevice,
-                            // Pré-sélectionner le prochain appareil guidé, sinon libérer la sélection
-                            pendingPosition = nextDevice?.position?.let { p -> p.x to p.y },
-                            // Feu rouge immédiat (le ticker prendra le relais pour décrémenter)
-                            scanCooldownSeconds = (intervalMs / 1000).toInt(),
-                            scanMode = getScanModeUseCase(),
-                            toastMessage = fellBackToastMsg ?: s.toastMessage,
-                            measurements = s.measurements + MeasurementPoint(
+                            isLoading           = false,
+                            guidedDevice        = nextDevice,
+                            pendingPosition     = nextDevice?.position?.let { p -> p.x to p.y },
+                            scanCooldownSeconds = 0,
+                            scanMode            = getScanModeUseCase(),
+                            toastMessage        = fellBackToastMsg ?: s.toastMessage,
+                            measurements        = s.measurements + MeasurementPoint(
+                                id      = finalMeasurement.id,
                                 x       = finalMeasurement.x,
                                 y       = finalMeasurement.y,
                                 quality = finalMeasurement.quality
@@ -270,6 +276,12 @@ class MeasureViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    /** Supprime une mesure par son id (mode expert). */
+    fun removeMeasurement(id: String) {
+        fullMeasurements.removeIf { it.id == id }
+        _uiState.update { s -> s.copy(measurements = s.measurements.filter { it.id != id }) }
     }
 
     /** Annule la mesure en cours (tap accidentel) — le scan est interrompu, aucune donnée gardée. */
