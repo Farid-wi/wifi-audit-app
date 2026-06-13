@@ -63,11 +63,13 @@ data class MeasureUiState(
     /** Mode de scan actuellement actif. */
     val scanMode: ScanMode = ScanMode.STANDARD,
     /** Message éphémère (toast) — ex. bascule auto en mode standard. */
-    val toastMessage: String? = null
+    val toastMessage: String? = null,
+    /** Mesures prises en phase libre uniquement (hors calibrage). */
+    val freeMeasurementCount: Int = 0
 ) {
     val measurementCount: Int get() = measurements.size
-    /** Terminer dès que la phase guidée (calibrage) est terminée. */
-    val canFinish: Boolean get() = guidedDevice == null && measurements.isNotEmpty()
+    /** Terminer uniquement quand la calibration est terminée ET qu'au moins 1 mesure libre a été prise. */
+    val canFinish: Boolean get() = guidedDevice == null && freeMeasurementCount > 0
     val canMeasure: Boolean get() = pendingPosition != null && !isLoading && scanCooldownSeconds == 0
 }
 
@@ -254,15 +256,17 @@ class MeasureViewModel @Inject constructor(
                         else if (currentGuided != null) appendLine("  → phase guidée terminée, mesures libres")
                     })
 
+                    val isFreePhase = currentGuided == null
                     _uiState.update { s ->
                         s.copy(
-                            isLoading           = false,
-                            guidedDevice        = nextDevice,
-                            pendingPosition     = nextDevice?.position?.let { p -> p.x to p.y },
-                            scanCooldownSeconds = 0,
-                            scanMode            = getScanModeUseCase(),
-                            toastMessage        = fellBackToastMsg ?: s.toastMessage,
-                            measurements        = s.measurements + MeasurementPoint(
+                            isLoading            = false,
+                            guidedDevice         = nextDevice,
+                            pendingPosition      = nextDevice?.position?.let { p -> p.x to p.y },
+                            scanCooldownSeconds  = 0,
+                            scanMode             = getScanModeUseCase(),
+                            toastMessage         = fellBackToastMsg ?: s.toastMessage,
+                            freeMeasurementCount = if (isFreePhase) s.freeMeasurementCount + 1 else s.freeMeasurementCount,
+                            measurements         = s.measurements + MeasurementPoint(
                                 id      = finalMeasurement.id,
                                 x       = finalMeasurement.x,
                                 y       = finalMeasurement.y,
@@ -281,10 +285,15 @@ class MeasureViewModel @Inject constructor(
         }
     }
 
-    /** Supprime une mesure par son id (mode expert). */
+    /** Supprime une mesure par son id (mode expert, phase libre uniquement). */
     fun removeMeasurement(id: String) {
         fullMeasurements.removeIf { it.id == id }
-        _uiState.update { s -> s.copy(measurements = s.measurements.filter { it.id != id }) }
+        _uiState.update { s ->
+            s.copy(
+                measurements         = s.measurements.filter { it.id != id },
+                freeMeasurementCount = (s.freeMeasurementCount - 1).coerceAtLeast(0)
+            )
+        }
     }
 
     /** Annule la mesure en cours (tap accidentel) — le scan est interrompu, aucune donnée gardée. */
