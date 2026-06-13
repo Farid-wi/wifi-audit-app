@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -96,6 +97,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -631,7 +634,7 @@ private fun CanvasBuilderStep(
     onSave: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -792,7 +795,7 @@ private fun RoomCanvas(
     var canvasSize  by remember { mutableStateOf(IntSize.Zero) }
     var selectedId  by remember { mutableStateOf<String?>(null) }
     var renamingId  by remember { mutableStateOf<String?>(null) }
-    var renameText  by remember { mutableStateOf("") }
+    var renameText  by remember { mutableStateOf(TextFieldValue("")) }
     val density     = LocalDensity.current
 
     val latestRooms    = rememberUpdatedState(rooms)
@@ -882,7 +885,7 @@ private fun RoomCanvas(
                         .pointerInput(room.id) {
                             detectTapGestures(
                                 onTap       = { selectedId = room.id; renamingId = null },
-                                onDoubleTap = { selectedId = room.id; renamingId = room.id; renameText = room.label }
+                                onDoubleTap = { selectedId = room.id; renamingId = room.id; renameText = TextFieldValue(room.label, TextRange(room.label.length)) }
                             )
                         },
                     contentAlignment = Alignment.Center
@@ -897,7 +900,7 @@ private fun RoomCanvas(
                             textStyle       = AppType.ControlLabel.copy(color = color, textAlign = TextAlign.Center),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
-                                val label = renameText.trim().ifEmpty { room.type.displayName }
+                                val label = renameText.text.trim().ifEmpty { room.type.displayName }
                                 latestOnUpdate.value(latestRooms.value.map { r ->
                                     if (r.id == room.id) r.copy(label = label) else r
                                 })
