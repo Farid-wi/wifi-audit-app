@@ -205,7 +205,7 @@ fun ResultsScreen(
                     )
                 } else {
                     Text(
-                        text = if (uiState.submitState == SubmitState.Success) "Envoyé ✓" else "Envoyer au serveur",
+                        text = if (uiState.submitState == SubmitState.Success) "Enregistré ✓" else "Enregistrer mon audit",
                         style = AppType.BodyEmphasis,
                         color = AppColors.OnAccent
                     )
@@ -397,10 +397,11 @@ private fun PlanWithHeatmap(
             }
         }
 
-        // ── 4. Points de mesure (bordure blanche pour contraste) ─────────────
+        // ── 4. Points de mesure : petits et translucides — la couleur de pièce
+        //       (synthèse) reste la lecture principale, les points sont des repères.
         if (boxSize != androidx.compose.ui.unit.IntSize.Zero) {
             measurementDots.forEach { dot ->
-                val dotDp  = 11.dp
+                val dotDp  = 8.dp
                 val dotPx  = with(density) { dotDp.toPx() }
                 val ox = (dot.x * boxSize.width  - dotPx / 2).toInt()
                 val oy = (dot.y * boxSize.height - dotPx / 2).toInt()
@@ -413,8 +414,8 @@ private fun PlanWithHeatmap(
                     modifier = Modifier
                         .offset { androidx.compose.ui.unit.IntOffset(ox, oy) }
                         .size(dotDp)
-                        .background(dotColor, AppShape.Circle)
-                        .border(2.dp, Color.White, AppShape.Circle)
+                        .background(dotColor.copy(alpha = 0.55f), AppShape.Circle)
+                        .border(1.dp, Color.White.copy(alpha = 0.9f), AppShape.Circle)
                 )
             }
 
@@ -566,13 +567,16 @@ private fun BandChip(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun HeatmapLegend(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.LG)
-    ) {
-        LegendItem(color = AppColors.SignalGood, label = "Signal fort")
-        LegendItem(color = AppColors.SignalFair, label = "Signal moyen")
-        LegendItem(color = AppColors.SignalPoor, label = "Signal faible")
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(AppSpacing.XS)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.LG)) {
+            LegendItem(color = AppColors.SignalGood, label = "Signal fort")
+            LegendItem(color = AppColors.SignalFair, label = "Signal moyen")
+            LegendItem(color = AppColors.SignalPoor, label = "Signal faible")
+        }
+        Text(
+            "Couleur de pièce : niveau global · Points : vos mesures individuelles",
+            style = AppType.Micro, color = AppColors.TextMeta
+        )
     }
 }
 
@@ -601,6 +605,12 @@ private fun OverallScoreCard(score: OverallScore, modifier: Modifier = Modifier)
         OverallScore.POOR -> Triple(Color(0xFFFCEBEB), Color(0xFF791F1F), Icons.Outlined.Warning)
     }
 
+    val progress = when (score) {
+        OverallScore.GOOD -> 1f
+        OverallScore.FAIR -> 0.66f
+        OverallScore.POOR -> 0.33f
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -609,10 +619,20 @@ private fun OverallScoreCard(score: OverallScore, modifier: Modifier = Modifier)
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
     ) {
-        Icon(icon, contentDescription = null, tint = textColor, modifier = Modifier.size(24.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text("Couverture globale", style = AppType.ControlLabel, color = textColor.copy(alpha = 0.7f))
-            Text(score.toUserLabel(), style = AppType.BodyEmphasis, color = textColor)
+            Text(score.toUserLabel(), style = AppType.CardTitle, color = textColor)
+        }
+        // Score visuel : anneau de progression par niveau, icône au centre.
+        Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxSize(),
+                color = textColor,
+                trackColor = textColor.copy(alpha = 0.15f),
+                strokeWidth = 4.dp
+            )
+            Icon(icon, contentDescription = null, tint = textColor, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -634,10 +654,10 @@ private fun RoomBadgesGrid(rooms: List<RoomResult>, modifier: Modifier = Modifie
 @Composable
 private fun RoomBadge(room: RoomResult) {
     val (bg, textColor, symbol) = when {
-        !room.hasData                        -> Triple(Color(0xFFF2F2F7), Color(0xFF8E8E93), "–")
+        !room.hasData                        -> Triple(Color(0xFFF2F2F7), Color(0xFF8E8E93), "○")
         room.quality == SignalQuality.GOOD   -> Triple(Color(0xFFE1F5EE), Color(0xFF085041), "✓")
-        room.quality == SignalQuality.FAIR   -> Triple(Color(0xFFFAEEDA), Color(0xFF633806), "~")
-        else                                 -> Triple(Color(0xFFFCEBEB), Color(0xFF791F1F), "✗")
+        room.quality == SignalQuality.FAIR   -> Triple(Color(0xFFFAEEDA), Color(0xFF633806), "⚠")
+        else                                 -> Triple(Color(0xFFFCEBEB), Color(0xFF791F1F), "✕")
     }
 
     Row(
@@ -649,6 +669,9 @@ private fun RoomBadge(room: RoomResult) {
     ) {
         Text(symbol, color = textColor, style = AppType.BodyEmphasis)
         Text(room.name, color = textColor, style = AppType.BodyPrimary)
+        if (!room.hasData) {
+            Text("· non mesurée", color = textColor.copy(alpha = 0.85f), style = AppType.Micro)
+        }
     }
 }
 
