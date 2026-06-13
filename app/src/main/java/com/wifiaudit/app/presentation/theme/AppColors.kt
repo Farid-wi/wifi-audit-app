@@ -3,8 +3,12 @@ package com.wifiaudit.app.presentation.theme
 import androidx.compose.ui.graphics.Color
 
 object AppColors {
-    val Background   = Color(0xFFFFFFFF)
-    val Surface      = Color(0xFFF5F5F7)
+    // Fond d'écran global gris très clair — jamais de blanc pur en fond de page.
+    val Background   = Color(0xFFF7F8FA)
+    // Cartes, modals, bottom sheets : blanc, posés sur le fond gris pour ressortir.
+    val Surface      = Color(0xFFFFFFFF)
+    // Zones neutres (placeholders, conteneur de plan, chips non sélectionnées).
+    val SurfaceAlt   = Color(0xFFEFF1F4)
     val SurfaceWarm  = Color(0xFFFBFBFD)
 
     val TextPrimary   = Color(0xFF1D1D1F)

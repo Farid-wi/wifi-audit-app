@@ -8,7 +8,8 @@ Application Android permettant à un particulier non technique de cartographier 
 L'utilisateur **construit son plan directement dans l'app** (canvas interactif) ou photographie un croquis dessiné à la main,
 place ses équipements, réalise quelques mesures pièce par pièce, et obtient une heatmap par pièce avec des recommandations contextuelles.
 
-Aucun terme technique (RSSI, BSSID, canal, bande) ne doit apparaître dans l'interface utilisateur.
+Aucun terme technique (RSSI, BSSID, canal, bande) ne doit apparaître dans l'interface utilisateur **par défaut**.
+**Exception « mode expert »** : un affichage avancé, opt-in (lié au mode pro/expert, cf. « Mode rapide »), peut révéler les valeurs techniques (dBm, bande) dans la liste réseau, les tooltips de points et les résultats. Le parcours par défaut du particulier reste 100 % non technique (barres + « signal fort/moyen/faible »).
 
 ### Deux options pour créer le plan (étape 1)
 - **Option A — Canvas interactif** : l'utilisateur ajoute des pièces rectangulaires, les positionne, les redimensionne et sélectionne leur type (salon, cuisine, chambre, bureau, salle de bain, couloir, salle à manger, autre). Option affichée en premier, même poids visuel.
@@ -82,8 +83,9 @@ presentation → domain ← data
 | < -75 | POOR | Rouge `#E24B4A` |
 
 ### Langage utilisateur
-- Ne jamais utiliser : RSSI, dBm, BSSID, canal, fréquence, MHz, GHz, protocole, latence, ping, passerelle, gateway, SSID
+- Parcours par défaut — ne jamais utiliser : RSSI, dBm, BSSID, canal, fréquence, MHz, GHz, protocole, latence, ping, passerelle, gateway, SSID
 - Utiliser à la place : "signal fort/faible", "connexion lente", "zone mal couverte", "box/routeur", "répéteur/borne", "nom du réseau Wi-Fi"
+- **Mode expert (opt-in)** : seul ce mode peut afficher dBm et bande (jamais BSSID/canal en clair). Toujours accompagner la valeur d'un label compréhensible ("signal fort · -58 dBm").
 
 ### Interpolation heatmap (IDW) — par pièce
 - Algorithme : Inverse Distance Weighting (puissance 2)
