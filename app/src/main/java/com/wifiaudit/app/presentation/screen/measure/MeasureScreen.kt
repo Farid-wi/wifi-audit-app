@@ -427,8 +427,10 @@ private fun InteractivePlanView(
 
     // Pinch-to-zoom
     var scale by remember { mutableStateOf(1f) }
-    val transformState = rememberTransformableState { zoomChange, _, _ ->
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         scale = (scale * zoomChange).coerceIn(1f, 5f)
+        panOffset += panChange * scale
     }
 
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
@@ -440,6 +442,8 @@ private fun InteractivePlanView(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                translationX = panOffset.x
+                translationY = panOffset.y
             }
             .pointerInput(Unit) {
                 detectTapGestures { offset ->

@@ -207,8 +207,10 @@ private fun EquipmentPlanView(
             ?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
     }
     var scale by remember { mutableStateOf(1f) }
-    val transformState = rememberTransformableState { zoom, _, _ ->
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    val transformState = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 5f)
+        panOffset += pan * scale
     }
     var planSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -216,7 +218,7 @@ private fun EquipmentPlanView(
     Box(
         modifier = modifier
             .transformable(state = transformState)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer { scaleX = scale; scaleY = scale; translationX = panOffset.x; translationY = panOffset.y }
             .pointerInput(uiState) {
                 detectTapGestures { offset ->
                     if (planSize != IntSize.Zero) {
