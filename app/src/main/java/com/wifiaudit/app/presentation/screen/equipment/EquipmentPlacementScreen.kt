@@ -154,16 +154,20 @@ fun EquipmentPlacementScreen(
                             style = AppType.BodyEmphasis, color = AppColors.OnAccent
                         )
                     }
-                }
-                TextButton(
-                    onClick = {
-                        auditCreationViewModel.setGatewayPosition(gw.first, gw.second)
-                        auditCreationViewModel.setRepeaters(emptyList())
-                        onNext()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Continuer sans répéteur Wi-Fi", style = AppType.BodyEmphasis, color = AppColors.TextMuted)
+                } else {
+                    Button(
+                        onClick = {
+                            auditCreationViewModel.setGatewayPosition(gw.first, gw.second)
+                            auditCreationViewModel.setRepeaters(emptyList())
+                            onNext()
+                        },
+                        modifier  = Modifier.fillMaxWidth(),
+                        shape     = AppShape.Pill,
+                        colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+                        elevation = ButtonDefaults.buttonElevation(0.dp)
+                    ) {
+                        Text("Continuer sans répéteur Wi-Fi", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
+                    }
                 }
             }
         }
