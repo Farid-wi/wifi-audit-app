@@ -1,5 +1,10 @@
 package com.wifiaudit.app.presentation.navigation
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -29,8 +34,12 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
     val auditCreationViewModel: AuditCreationViewModel = hiltViewModel()
 
     NavHost(
-        navController = navController,
-        startDestination = Screen.Plan.route
+        navController    = navController,
+        startDestination = Screen.Plan.route,
+        enterTransition  = { slideInHorizontally(tween(500)) { it }  + fadeIn(tween(500))  },
+        exitTransition   = { slideOutHorizontally(tween(350)) { -it } + fadeOut(tween(350)) },
+        popEnterTransition  = { slideInHorizontally(tween(500)) { -it } + fadeIn(tween(500))  },
+        popExitTransition   = { slideOutHorizontally(tween(350)) { it }  + fadeOut(tween(350)) }
     ) {
         composable(Screen.Plan.route) {
             PlanCaptureScreen(

@@ -1,6 +1,13 @@
 package com.wifiaudit.app.presentation.screen.equipment
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -82,17 +89,25 @@ fun EquipmentPlacementScreen(
     ) {
         StepHeader(currentStep = 2, onBack = onBack)
 
-        Column(modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)) {
-            val (title, instruction) = when {
-                uiState.gatewayPosition == null ->
-                    "Placez votre box internet sur le plan" to
-                    "Appuyez sur le plan à l'endroit où elle se trouve. Si elle n'est pas sur ce plan, placez-la dans le cadre en bas."
-                else ->
-                    "Placez vos répéteurs Wi-Fi" to "Appuyez sur le plan pour ajouter un répéteur. Glissez pour le déplacer, touchez le symbole répéteur pour le supprimer."
+        AnimatedContent(
+            targetState = uiState.gatewayPosition == null,
+            transitionSpec = {
+                slideInHorizontally(tween(500)) { it } + fadeIn(tween(500)) togetherWith
+                slideOutHorizontally(tween(350)) { -it } + fadeOut(tween(350))
+            },
+            modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD),
+            label = "step-header"
+        ) { isGatewayStep ->
+            val (title, instruction) = if (isGatewayStep)
+                "Placez votre box internet sur le plan" to
+                "Appuyez sur le plan à l'endroit où elle se trouve. Si elle n'est pas sur ce plan, placez-la dans le cadre en bas."
+            else
+                "Placez vos répéteurs Wi-Fi" to "Appuyez sur le plan pour ajouter un répéteur. Glissez pour le déplacer, touchez le symbole répéteur pour le supprimer."
+            Column {
+                Text(title, style = AppType.CardTitle, color = AppColors.TextPrimary)
+                Spacer(Modifier.height(AppSpacing.XS))
+                Text(instruction, style = AppType.BodyPrimary, color = AppColors.TextMuted)
             }
-            Text(title, style = AppType.CardTitle, color = AppColors.TextPrimary)
-            Spacer(Modifier.height(AppSpacing.XS))
-            Text(instruction, style = AppType.BodyPrimary, color = AppColors.TextMuted)
         }
 
         Box(modifier = Modifier.weight(1f).padding(horizontal = AppSpacing.LG).padding(14.dp)) {
