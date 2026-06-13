@@ -114,16 +114,20 @@ fun EquipmentPlacementScreen(
             )
         }
 
-        if (!uiState.repeaterConfirmed) {
-            OffFloorGatewayZone(
-                occupied = uiState.gatewayOnDifferentFloor,
-                onTap    = viewModel::placeGatewayOffFloor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AppSpacing.LG)
-                    .padding(bottom = AppSpacing.SM)
-            )
-        }
+        OffFloorGatewayZone(
+            gatewayPlaced        = uiState.gatewayOnDifferentFloor,
+            offFloorRepeaterCount = uiState.offFloorRepeaterCount,
+            onTap = {
+                if (!uiState.repeaterConfirmed) viewModel.placeGatewayOffFloor()
+                else viewModel.addRepeaterOffFloor()
+            },
+            onRemoveRepeater = viewModel::removeOffFloorRepeater,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.LG)
+                .padding(horizontal = 14.dp)
+                .padding(bottom = AppSpacing.SM)
+        )
 
         Column(
             modifier = Modifier
@@ -159,14 +163,15 @@ fun EquipmentPlacementScreen(
                     }
                 }
 
-                uiState.repeaterPositions.isNotEmpty() -> {
+                uiState.repeaterPositions.isNotEmpty() || uiState.offFloorRepeaterCount > 0 -> {
                     Button(
                         onClick = {
                             auditCreationViewModel.setGatewayPosition(
                                 uiState.gatewayPosition!!.first,
                                 uiState.gatewayPosition!!.second
                             )
-                            auditCreationViewModel.setRepeaters(uiState.repeaterPositions)
+                            val offFloorPairs = List(uiState.offFloorRepeaterCount) { -1f to -1f }
+                            auditCreationViewModel.setRepeaters(uiState.repeaterPositions + offFloorPairs)
                             onNext()
                         },
                         modifier  = Modifier.fillMaxWidth(),
@@ -174,7 +179,7 @@ fun EquipmentPlacementScreen(
                         colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        val n = uiState.repeaterPositions.size
+                        val n = uiState.repeaterPositions.size + uiState.offFloorRepeaterCount
                         Text(
                             "Continuer ($n répéteur${if (n > 1) "s" else ""})",
                             style = AppType.BodyEmphasis, color = AppColors.OnAccent
@@ -295,10 +300,13 @@ private fun CanvasRoomsPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modifi
 
 @Composable
 private fun OffFloorGatewayZone(
-    occupied: Boolean,
+    gatewayPlaced: Boolean,
+    offFloorRepeaterCount: Int,
     onTap: () -> Unit,
+    onRemoveRepeater: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isEmpty = !gatewayPlaced && offFloorRepeaterCount == 0
     Box(
         modifier = modifier
             .height(64.dp)
@@ -306,26 +314,57 @@ private fun OffFloorGatewayZone(
             .pointerInput(Unit) { detectTapGestures { onTap() } },
         contentAlignment = Alignment.Center
     ) {
-        if (occupied) {
+        if (isEmpty) {
+            Text("Autre étage", style = AppType.ControlLabel, color = AppColors.TextMuted)
+        } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .background(Color.White, AppShape.Circle)
-                        .border(2.dp, AppColors.Accent, AppShape.Circle),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Outlined.Router, contentDescription = null,
-                         tint = AppColors.Accent, modifier = Modifier.size(18.dp))
+                if (gatewayPlaced) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color.White, AppShape.Circle)
+                            .border(2.dp, AppColors.Accent, AppShape.Circle)
+                            .pointerInput(Unit) { detectTapGestures { } },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Router, contentDescription = null,
+                             tint = AppColors.Accent, modifier = Modifier.size(18.dp))
+                    }
                 }
-                Text("Box placée à un autre étage",
-                     style = AppType.ControlLabel, color = AppColors.TextMuted)
+                repeat(offFloorRepeaterCount) {
+                    Box(
+                        modifier = Modifier.size(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(Color.White, AppShape.Circle)
+                                .border(2.dp, AppColors.SignalFair, AppShape.Circle)
+                                .pointerInput(Unit) { detectTapGestures { } },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.SettingsInputAntenna, contentDescription = null,
+                                 tint = AppColors.SignalFair, modifier = Modifier.size(18.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(16.dp)
+                                .background(AppColors.SignalPoor, AppShape.Circle)
+                                .border(1.5.dp, Color.White, AppShape.Circle)
+                                .pointerInput(Unit) { detectTapGestures { onRemoveRepeater() } },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Close, contentDescription = null,
+                                 tint = Color.White, modifier = Modifier.size(9.dp))
+                        }
+                    }
+                }
             }
-        } else {
-            Text("Autre étage", style = AppType.ControlLabel, color = AppColors.TextMuted)
         }
     }
 }

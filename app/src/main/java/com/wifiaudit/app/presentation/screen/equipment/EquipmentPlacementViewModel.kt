@@ -14,7 +14,8 @@ data class EquipmentPlacementUiState(
     val gatewayPosition: Pair<Float, Float>?        = null,
     val gatewayOnDifferentFloor: Boolean            = false,
     val repeaterConfirmed: Boolean                  = false,
-    val repeaterPositions: List<Pair<Float, Float>> = emptyList()
+    val repeaterPositions: List<Pair<Float, Float>> = emptyList(),
+    val offFloorRepeaterCount: Int                  = 0
 )
 
 @HiltViewModel
@@ -47,6 +48,14 @@ class EquipmentPlacementViewModel @Inject constructor() : ViewModel() {
 
     fun addRepeater(x: Float, y: Float) {
         _uiState.update { it.copy(repeaterPositions = it.repeaterPositions + (x to y)) }
+    }
+
+    fun addRepeaterOffFloor() {
+        _uiState.update { it.copy(offFloorRepeaterCount = it.offFloorRepeaterCount + 1) }
+    }
+
+    fun removeOffFloorRepeater() {
+        _uiState.update { it.copy(offFloorRepeaterCount = (it.offFloorRepeaterCount - 1).coerceAtLeast(0)) }
     }
 
     /** Déplacement relatif d'un répéteur (drag sur le plan), borné au plan. */
