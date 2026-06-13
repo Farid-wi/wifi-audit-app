@@ -72,6 +72,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wifiaudit.app.domain.model.CanvasRoom
@@ -203,21 +204,42 @@ fun MeasureScreen(
                 )
             }
 
-            // ─── Plan interactif ──────────────────────────────────────────
-            // Padding bas : le contenu du plan reste au-dessus du FAB « Mesurer ici ».
-            Box(modifier = Modifier.weight(1f).padding(horizontal = AppSpacing.LG).padding(top = 14.dp, bottom = 86.dp)) {
-                InteractivePlanView(
-                    planImagePath      = uiState.planImagePath ?: "",
-                    rooms              = creationState.rooms,
-                    measurements       = uiState.measurements,
-                    pendingPosition    = uiState.pendingPosition,
-                    isLoading          = uiState.isLoading,
-                    onTap              = { x, y -> viewModel.selectPosition(x, y) },
-                    gatewayPosition    = creationState.gatewayPosition,
-                    repeaterPositions  = creationState.repeaterPositions,
-                    guidedDeviceId     = uiState.guidedDevice?.deviceId,
-                    modifier           = Modifier.fillMaxSize()
+            // ─── Plan interactif + zone hors-plan ────────────────────────
+            val isPendingOffPlan = uiState.pendingPosition?.first?.let { it < 0f } ?: false
+            Column(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = AppSpacing.LG)
+                        .padding(top = 14.dp, bottom = AppSpacing.XS)
+                ) {
+                    InteractivePlanView(
+                        planImagePath     = uiState.planImagePath ?: "",
+                        rooms             = creationState.rooms,
+                        measurements      = uiState.measurements,
+                        pendingPosition   = uiState.pendingPosition?.takeIf { it.first >= 0f },
+                        isLoading         = uiState.isLoading,
+                        onTap             = { x, y -> viewModel.selectPosition(x, y) },
+                        gatewayPosition   = creationState.gatewayPosition?.takeIf { it.x >= 0f },
+                        repeaterPositions = creationState.repeaterPositions.filter { it.position.x >= 0f },
+                        guidedDeviceId    = uiState.guidedDevice?.deviceId,
+                        modifier          = Modifier.fillMaxSize()
+                    )
+                }
+                HorsPlanMeasureZone(
+                    gatewayOffPlan       = (creationState.gatewayPosition?.x ?: 0f) < 0f,
+                    offPlanRepeaterCount = creationState.repeaterPositions.count { it.position.x < 0f },
+                    repeaterStartIndex   = creationState.repeaterPositions.count { it.position.x >= 0f } + 1,
+                    isPendingOffPlan     = isPendingOffPlan,
+                    isLoading            = uiState.isLoading,
+                    onTap                = { viewModel.selectPosition(-1f, -1f) },
+                    modifier             = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = AppSpacing.LG)
+                        .padding(horizontal = 14.dp)
+                        .padding(bottom = AppSpacing.SM)
                 )
+                Spacer(Modifier.height(86.dp))
             }
 
             // ─── Bouton terminer ──────────────────────────────────────────
@@ -473,12 +495,13 @@ private fun InteractivePlanView(
                     imageSize = imageSize, density = density
                 )
             }
-            repeaterPositions.forEach { rep ->
+            repeaterPositions.forEachIndexed { index, rep ->
                 DevicePin(
                     x = rep.position.x, y = rep.position.y,
                     icon = Icons.Outlined.SettingsInputAntenna,
                     color = AppColors.SignalFair,
                     isHighlighted = guidedDeviceId == rep.id,
+                    index = index + 1,
                     imageSize = imageSize, density = density
                 )
             }
@@ -699,7 +722,8 @@ private fun DevicePin(
     color: Color,
     isHighlighted: Boolean,
     imageSize: IntSize,
-    density: androidx.compose.ui.unit.Density
+    density: androidx.compose.ui.unit.Density,
+    index: Int? = null
 ) {
     val sizeDp  = 28.dp
     val sizePx  = with(density) { sizeDp.toPx() }
@@ -720,25 +744,47 @@ private fun DevicePin(
     Box(
         modifier = Modifier
             .offset { IntOffset(offsetX, offsetY) }
-            .size(sizeDp)
-            .background(
-                color = if (isHighlighted) color.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.85f),
-                shape = AppShape.Circle
-            )
-            .border(
-                width = if (isHighlighted) 2.5.dp else 1.5.dp,
-                color = if (isHighlighted) color.copy(alpha = if (isHighlighted) pulseAlpha else 1f)
-                        else color.copy(alpha = 0.7f),
-                shape = AppShape.Circle
-            ),
+            .size(sizeDp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isHighlighted) Color.White else color,
-            modifier = Modifier.size(14.dp)
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    color = if (isHighlighted) color.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.85f),
+                    shape = AppShape.Circle
+                )
+                .border(
+                    width = if (isHighlighted) 2.5.dp else 1.5.dp,
+                    color = if (isHighlighted) color.copy(alpha = pulseAlpha) else color.copy(alpha = 0.7f),
+                    shape = AppShape.Circle
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isHighlighted) Color.White else color,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        if (index != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                    .size(14.dp)
+                    .background(Color(0xFFAEAEB2), AppShape.Circle)
+                    .border(1.5.dp, Color.White, AppShape.Circle),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "$index",
+                    color = Color.White,
+                    style = AppType.ControlLabel.copy(fontSize = 8.sp)
+                )
+            }
+        }
     }
 }
 
@@ -785,6 +831,128 @@ private fun measureRoomColor(type: RoomType): Color = when (type) {
     RoomType.HALLWAY  -> Color(0xFFAEAEB2)
     RoomType.DINING   -> Color(0xFFFF6B6B)
     RoomType.OTHER    -> Color(0xFF8E8E93)
+}
+
+// ─── Zone hors plan (appareils non localisés sur l'étage courant) ────────────
+
+@Composable
+private fun HorsPlanMeasureZone(
+    gatewayOffPlan: Boolean,
+    offPlanRepeaterCount: Int,
+    repeaterStartIndex: Int = 1,
+    isPendingOffPlan: Boolean,
+    isLoading: Boolean,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val pulseTransition = rememberInfiniteTransition(label = "zone_pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue  = 1f,
+        targetValue   = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "zone_pulse_scale"
+    )
+
+    val isEmpty     = !gatewayOffPlan && offPlanRepeaterCount == 0
+    val borderColor = if (isPendingOffPlan) AppColors.Accent else Color.Black
+    val bgColor     = if (isPendingOffPlan) AppColors.Accent.copy(alpha = 0.07f) else Color.Transparent
+
+    Box(
+        modifier = modifier
+            .height(64.dp)
+            .background(bgColor, AppShape.Medium)
+            .border(1.5.dp, borderColor.copy(alpha = if (isPendingOffPlan) 0.5f else 1f), AppShape.Medium)
+            .pointerInput(Unit) { detectTapGestures { onTap() } },
+        contentAlignment = Alignment.Center
+    ) {
+        if (isEmpty && !isPendingOffPlan) {
+            Text("Hors plan", style = AppType.ControlLabel, color = AppColors.TextMuted)
+        } else {
+            Row(
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)
+            ) {
+                // Point pulsant si une mesure est en attente ici
+                if (isPendingOffPlan) {
+                    val dotScale = if (isLoading) pulseScale else 1f
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp * dotScale)
+                            .background(
+                                color = AppColors.Accent.copy(alpha = if (isLoading) 0.55f else 0.8f),
+                                shape = AppShape.Circle
+                            )
+                            .border(2.dp, Color.White, AppShape.Circle)
+                    )
+                }
+                // Pin gateway (pas de badge numéro, un seul)
+                if (gatewayOffPlan) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color.White, AppShape.Circle)
+                            .border(2.dp, AppColors.Accent, AppShape.Circle),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector        = Icons.Outlined.Router,
+                            contentDescription = null,
+                            tint               = AppColors.Accent,
+                            modifier           = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                // Pins répéteurs avec badge numéroté (lecture seule, pas de ✕)
+                repeat(offPlanRepeaterCount.coerceAtMost(4)) { i ->
+                    Box(
+                        modifier = Modifier.size(36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(Color.White, AppShape.Circle)
+                                .border(2.dp, AppColors.SignalFair, AppShape.Circle),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector        = Icons.Outlined.SettingsInputAntenna,
+                                contentDescription = null,
+                                tint               = AppColors.SignalFair,
+                                modifier           = Modifier.size(18.dp)
+                            )
+                        }
+                        // Badge numéro — haut gauche
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset { IntOffset(0, (-8).dp.roundToPx()) }
+                                .size(14.dp)
+                                .background(Color(0xFFAEAEB2), AppShape.Circle)
+                                .border(1.5.dp, Color.White, AppShape.Circle),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "${repeaterStartIndex + i}",
+                                color = Color.White,
+                                style = AppType.ControlLabel.copy(fontSize = 8.sp)
+                            )
+                        }
+                    }
+                }
+                if (!isEmpty) {
+                    Text(
+                        text  = "Hors plan",
+                        style = AppType.ControlLabel,
+                        color = if (isPendingOffPlan) AppColors.Accent else AppColors.TextSecondary
+                    )
+                }
+            }
+        }
+    }
 }
 
 // ─── Placeholder si aucun plan disponible ────────────────────────────────────
