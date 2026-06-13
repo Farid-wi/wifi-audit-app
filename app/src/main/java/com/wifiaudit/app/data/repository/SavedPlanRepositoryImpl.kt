@@ -23,6 +23,22 @@ class SavedPlanRepositoryImpl @Inject constructor(
 
     override suspend fun save(plan: SavedPlan) = dao.upsert(plan.toEntity())
 
+    override suspend fun rename(planId: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isNotEmpty()) dao.rename(planId, trimmed)
+    }
+
+    override suspend fun duplicate(planId: String) {
+        val original = dao.getById(planId) ?: return
+        dao.upsert(
+            original.copy(
+                id        = java.util.UUID.randomUUID().toString(),
+                name      = "${original.name} (copie)",
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+
     override suspend fun delete(planId: String) = dao.delete(planId)
 
     private fun SavedPlanEntity.toDomain(): SavedPlan {

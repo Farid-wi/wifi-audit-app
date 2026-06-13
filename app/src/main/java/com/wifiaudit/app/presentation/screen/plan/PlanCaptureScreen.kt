@@ -38,16 +38,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -143,8 +152,21 @@ fun PlanCaptureScreen(
 
     if (uiState.showSaveDialog) {
         SavePlanDialog(
-            onDismiss = viewModel::dismissSaveDialog,
-            onConfirm = viewModel::savePlan
+            title       = "Enregistrer ce plan",
+            confirmText = "Enregistrer",
+            initialName = defaultPlanName(),   // nom intelligent par défaut, éditable
+            onDismiss   = viewModel::dismissSaveDialog,
+            onConfirm   = viewModel::savePlan
+        )
+    }
+
+    uiState.renameTarget?.let { target ->
+        SavePlanDialog(
+            title       = "Renommer le plan",
+            confirmText = "Renommer",
+            initialName = target.name,
+            onDismiss   = viewModel::cancelRename,
+            onConfirm   = { newName -> viewModel.renamePlan(target.id, newName) }
         )
     }
 
@@ -166,7 +188,19 @@ fun PlanCaptureScreen(
                     savedPlans       = uiState.savedPlans,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
                     onLoadPlan       = viewModel::loadSavedPlan,
-                    onDeletePlan     = viewModel::deleteSavedPlan
+                    onRenamePlan     = viewModel::startRename,
+                    onDuplicatePlan  = viewModel::duplicatePlan,
+                    onDeletePlan     = viewModel::deleteSavedPlan,
+                    onSeeAllPlans    = viewModel::showAllPlans
+                )
+
+            PlanStep.ALL_PLANS ->
+                AllPlansStep(
+                    savedPlans      = uiState.savedPlans,
+                    onLoadPlan      = viewModel::loadSavedPlan,
+                    onRenamePlan    = viewModel::startRename,
+                    onDuplicatePlan = viewModel::duplicatePlan,
+                    onDeletePlan    = viewModel::deleteSavedPlan
                 )
 
             PlanStep.CANVAS_BUILDER ->
@@ -203,56 +237,183 @@ fun PlanCaptureScreen(
     }
 }
 
-// ─── Option picker ────────────────────────────────────────────────────────────
+// ─── Accueil ──────────────────────────────────────────────────────────────────
+
+private fun defaultPlanName(): String =
+    "Plan du " + SimpleDateFormat("d MMMM", Locale.FRENCH).format(Date())
 
 @Composable
 private fun OptionPickerStep(
     savedPlans: List<SavedPlan>,
     onCanvasSelected: () -> Unit,
     onLoadPlan:       (SavedPlan) -> Unit,
-    onDeletePlan:     (String) -> Unit
+    onRenamePlan:     (SavedPlan) -> Unit,
+    onDuplicatePlan:  (String) -> Unit,
+    onDeletePlan:     (String) -> Unit,
+    onSeeAllPlans:    () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(AppSpacing.XXL),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.LG)
+            .padding(horizontal = AppSpacing.XXL)
+            .padding(bottom = AppSpacing.Section),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.XL)
     ) {
-        Spacer(Modifier.height(AppSpacing.Section))
+        Spacer(Modifier.height(AppSpacing.LG))
 
+        HomeHeader()
+
+        // ① Hero — action principale
+        HeroNewDiagnosticCard(onStart = onCanvasSelected)
+
+        // ② Mes plans (masqué tant qu'il n'y en a aucun — le Hero porte déjà la création)
         if (savedPlans.isNotEmpty()) {
-            Text("Mes plans enregistrés", style = AppType.SectionTitle, color = AppColors.TextPrimary)
-            Spacer(Modifier.height(AppSpacing.XS))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD),
-                contentPadding = PaddingValues(horizontal = 2.dp)
-            ) {
-                items(savedPlans, key = { it.id }) { plan ->
-                    SavedPlanCard(
-                        plan     = plan,
-                        onLoad   = { onLoadPlan(plan) },
-                        onDelete = { onDeletePlan(plan.id) }
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)) {
+                SectionHeader(
+                    title       = "Mes plans",
+                    actionLabel = if (savedPlans.size > 3) "Tout voir" else null,
+                    onAction    = onSeeAllPlans
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD),
+                    contentPadding = PaddingValues(horizontal = 2.dp)
+                ) {
+                    items(savedPlans.take(8), key = { it.id }) { plan ->
+                        SavedPlanCard(
+                            plan        = plan,
+                            onLoad      = { onLoadPlan(plan) },
+                            onRename    = { onRenamePlan(plan) },
+                            onDuplicate = { onDuplicatePlan(plan.id) },
+                            onDelete    = { onDeletePlan(plan.id) },
+                            modifier    = Modifier.width(160.dp)
+                        )
+                    }
+                    item { CreatePlanCard(onClick = onCanvasSelected) }
                 }
             }
-            Spacer(Modifier.height(AppSpacing.MD))
         }
 
-        Text("Nouveau plan", style = AppType.SectionTitle, color = AppColors.TextPrimary)
-        Text(
-            "Créez le plan de votre logement en quelques gestes.",
-            style = AppType.BodyPrimary, color = AppColors.TextMuted
-        )
-        Spacer(Modifier.height(AppSpacing.SM))
+        // ③ Mes diagnostics — teaser (écran à venir)
+        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)) {
+            SectionHeader(title = "Mes diagnostics")
+            DiagnosticsTeaserCard()
+        }
+    }
+}
 
-        PlanOptionCard(
-            title       = "Dessiner mon plan",
-            description = "Ajoutez vos pièces et placez-les directement dans l'app",
-            icon        = Icons.Outlined.GridView,
-            onClick     = onCanvasSelected,
-            modifier    = Modifier.fillMaxWidth()
-        )
+@Composable
+private fun HomeHeader() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(AppColors.Accent.copy(alpha = 0.10f), AppShape.Medium),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Wifi, null, tint = AppColors.Accent, modifier = Modifier.size(24.dp))
+        }
+        Column {
+            Text("WiFi Audit", style = AppType.CardTitle, color = AppColors.TextPrimary)
+            Text(
+                "Cartographiez la couverture Wi-Fi de votre logement",
+                style = AppType.ControlLabel, color = AppColors.TextMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeroNewDiagnosticCard(onStart: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppColors.Accent.copy(alpha = 0.08f), AppShape.Large)
+            .border(1.dp, AppColors.Accent.copy(alpha = 0.18f), AppShape.Large)
+            .padding(AppSpacing.XL),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.LG)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(AppColors.Accent, AppShape.Medium),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.GridView, null, tint = AppColors.OnAccent, modifier = Modifier.size(26.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Nouveau diagnostic", style = AppType.BodyEmphasis, color = AppColors.TextPrimary)
+                Text(
+                    "Dessinez le plan, placez vos équipements, mesurez le signal.",
+                    style = AppType.ControlLabel, color = AppColors.TextMuted
+                )
+            }
+        }
+        Button(
+            onClick = onStart,
+            modifier = Modifier.fillMaxWidth(),
+            shape = AppShape.Pill,
+            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
+            elevation = ButtonDefaults.buttonElevation(0.dp)
+        ) {
+            Text("Commencer", style = AppType.BodyEmphasis, color = AppColors.OnAccent)
+            Spacer(Modifier.width(AppSpacing.XS))
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowForward, null,
+                tint = AppColors.OnAccent, modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, style = AppType.BodyEmphasis, color = AppColors.TextPrimary)
+        if (actionLabel != null && onAction != null) {
+            Text(
+                actionLabel,
+                style = AppType.ControlLabel,
+                color = AppColors.Accent,
+                modifier = Modifier.clip(AppShape.Small).clickable(onClick = onAction).padding(AppSpacing.XS)
+            )
+        }
+    }
+}
+
+/** Miniature réelle d'un plan : les pièces dessinées en rectangles colorés. */
+@Composable
+private fun PlanThumbnail(rooms: List<CanvasRoom>, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        rooms.forEach { r ->
+            val l = r.bounds.left * size.width
+            val t = r.bounds.top * size.height
+            val w = (r.bounds.right - r.bounds.left) * size.width
+            val h = (r.bounds.bottom - r.bounds.top) * size.height
+            val c = roomTypeColor(r.type)
+            val topLeft = androidx.compose.ui.geometry.Offset(l, t)
+            val rectSize = androidx.compose.ui.geometry.Size(w, h)
+            drawRect(c.copy(alpha = 0.18f), topLeft = topLeft, size = rectSize)
+            drawRect(
+                c.copy(alpha = 0.55f), topLeft = topLeft, size = rectSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+            )
+        }
     }
 }
 
@@ -260,87 +421,175 @@ private fun OptionPickerStep(
 private fun SavedPlanCard(
     plan: SavedPlan,
     onLoad: () -> Unit,
-    onDelete: () -> Unit
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dateStr = remember(plan.createdAt) {
-        SimpleDateFormat("dd MMM", Locale.FRENCH).format(Date(plan.createdAt))
+        SimpleDateFormat("d MMM", Locale.FRENCH).format(Date(plan.createdAt))
     }
     Column(
-        modifier = Modifier
-            .width(140.dp)
+        modifier = modifier
+            .clip(AppShape.Large)
             .background(AppColors.Surface, AppShape.Large)
             .border(1.dp, AppColors.BorderSoft, AppShape.Large)
             .clickable(onClick = onLoad)
-            .padding(AppSpacing.MD),
+            .padding(AppSpacing.SM),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.XS)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(84.dp)
+                .clip(AppShape.Medium)
+                .background(Color.White)
+                .border(1.dp, AppColors.BorderSoft, AppShape.Medium)
+        ) {
+            PlanThumbnail(plan.rooms, Modifier.fillMaxSize().padding(6.dp))
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .background(AppColors.Accent.copy(alpha = 0.10f), AppShape.Medium),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Outlined.GridView, null,
-                    tint = AppColors.Accent, modifier = Modifier.size(16.dp)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    plan.name, style = AppType.BodyEmphasis, color = AppColors.TextPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${plan.rooms.size} pièce${if (plan.rooms.size > 1) "s" else ""} · $dateStr",
+                    style = AppType.Micro, color = AppColors.TextMuted
                 )
             }
-            IconButton(
-                onClick  = onDelete,
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    Icons.Outlined.Close, "Supprimer",
-                    tint = AppColors.TextMuted, modifier = Modifier.size(14.dp)
-                )
-            }
+            PlanContextMenu(onRename = onRename, onDuplicate = onDuplicate, onDelete = onDelete)
         }
-        Text(
-            plan.name,
-            style    = AppType.BodyEmphasis,
-            color    = AppColors.TextPrimary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            "${plan.rooms.size} pièce${if (plan.rooms.size > 1) "s" else ""}  ·  $dateStr",
-            style = AppType.ControlLabel, color = AppColors.TextMuted
-        )
     }
 }
 
 @Composable
-private fun PlanOptionCard(
-    title: String, description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun PlanContextMenu(
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Outlined.MoreVert, "Options du plan", tint = AppColors.TextMuted,
+                 modifier = Modifier.size(20.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Renommer", style = AppType.BodyPrimary) },
+                onClick = { expanded = false; onRename() },
+                leadingIcon = { Icon(Icons.Outlined.Edit, null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Dupliquer", style = AppType.BodyPrimary) },
+                onClick = { expanded = false; onDuplicate() },
+                leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Supprimer", style = AppType.BodyPrimary, color = AppColors.SignalPoor) },
+                onClick = { expanded = false; onDelete() },
+                leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = AppColors.SignalPoor) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreatePlanCard(onClick: () -> Unit) {
     Column(
-        modifier = modifier
-            .background(AppColors.Surface, AppShape.Large)
-            .border(1.dp, AppColors.BorderSoft, AppShape.Large)
-            .clickable(onClick = onClick)
-            .padding(AppSpacing.XL),
+        modifier = Modifier
+            .width(160.dp)
+            .height(150.dp)
+            .clip(AppShape.Large)
+            .background(AppColors.Accent.copy(alpha = 0.06f), AppShape.Large)
+            .border(1.5.dp, AppColors.Accent.copy(alpha = 0.35f), AppShape.Large)
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Outlined.Add, null, tint = AppColors.Accent, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.height(AppSpacing.XS))
+        Text("Créer", style = AppType.BodyEmphasis, color = AppColors.Accent)
+    }
+}
+
+@Composable
+private fun DiagnosticsTeaserCard() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppColors.SurfaceAlt, AppShape.Large)
+            .padding(AppSpacing.XL),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
     ) {
         Box(
             modifier = Modifier
-                .size(52.dp)
-                .background(AppColors.Accent.copy(alpha = 0.10f), AppShape.Medium),
+                .size(40.dp)
+                .background(Color.White, AppShape.Medium),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(26.dp))
+            Icon(Icons.Outlined.Schedule, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
         }
-        Text(title, style = AppType.BodyEmphasis, color = AppColors.TextPrimary)
-        Text(description, style = AppType.ControlLabel, color = AppColors.TextMuted,
-             textAlign = TextAlign.Center)
+        Column(Modifier.weight(1f)) {
+            Text("Bientôt disponible", style = AppType.BodyEmphasis, color = AppColors.TextSecondary)
+            Text(
+                "Retrouvez ici l'historique de vos audits et leurs heatmaps.",
+                style = AppType.ControlLabel, color = AppColors.TextMuted
+            )
+        }
+    }
+}
+
+// ─── Liste complète des plans (« Tout voir ») ─────────────────────────────────
+
+@Composable
+private fun AllPlansStep(
+    savedPlans: List<SavedPlan>,
+    onLoadPlan: (SavedPlan) -> Unit,
+    onRenamePlan: (SavedPlan) -> Unit,
+    onDuplicatePlan: (String) -> Unit,
+    onDeletePlan: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = AppSpacing.XXL)
+            .padding(bottom = AppSpacing.Section)
+    ) {
+        Spacer(Modifier.height(AppSpacing.SM))
+        Text("Mes plans", style = AppType.SectionTitle, color = AppColors.TextPrimary)
+        Spacer(Modifier.height(AppSpacing.LG))
+
+        if (savedPlans.isEmpty()) {
+            Text("Aucun plan enregistré.", style = AppType.BodyPrimary, color = AppColors.TextMuted)
+        } else {
+            // Grille 2 colonnes via lignes chunkées (peu d'éléments → pas besoin de lazy grid).
+            savedPlans.chunked(2).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = AppSpacing.MD),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+                ) {
+                    row.forEach { plan ->
+                        SavedPlanCard(
+                            plan        = plan,
+                            onLoad      = { onLoadPlan(plan) },
+                            onRename    = { onRenamePlan(plan) },
+                            onDuplicate = { onDuplicatePlan(plan.id) },
+                            onDelete    = { onDeletePlan(plan.id) },
+                            modifier    = Modifier.weight(1f)
+                        )
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
     }
 }
 
@@ -832,16 +1081,19 @@ private fun RoomConfirmationStep(
 
 @Composable
 private fun SavePlanDialog(
+    title: String,
+    confirmText: String,
+    initialName: String,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initialName) }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title   = { Text("Enregistrer ce plan", style = AppType.CardTitle, color = AppColors.TextPrimary) },
+        title   = { Text(title, style = AppType.CardTitle, color = AppColors.TextPrimary) },
         text    = {
             OutlinedTextField(
                 value           = name,
@@ -861,7 +1113,7 @@ private fun SavePlanDialog(
                 shape     = AppShape.Pill,
                 colors    = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                 elevation = ButtonDefaults.buttonElevation(0.dp)
-            ) { Text("Enregistrer", style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
+            ) { Text(confirmText, style = AppType.BodyEmphasis, color = AppColors.OnAccent) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {

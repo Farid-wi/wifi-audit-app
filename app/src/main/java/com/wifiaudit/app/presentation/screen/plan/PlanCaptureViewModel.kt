@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-enum class PlanStep { OPTION_PICKER, CANVAS_BUILDER, PHOTO_PREVIEW, ROOM_CONFIRMATION }
+enum class PlanStep { OPTION_PICKER, ALL_PLANS, CANVAS_BUILDER, PHOTO_PREVIEW, ROOM_CONFIRMATION }
 
 data class PlanCaptureUiState(
     val step: PlanStep                  = PlanStep.OPTION_PICKER,
@@ -30,7 +30,9 @@ data class PlanCaptureUiState(
     val newRoomLabel: String            = "",
     val savedPlans: List<SavedPlan>     = emptyList(),
     val showSaveDialog: Boolean         = false,
-    val planSaved: Boolean              = false
+    val planSaved: Boolean              = false,
+    /** Plan en cours de renommage (non-null = dialog de renommage affiché). */
+    val renameTarget: SavedPlan?        = null
 )
 
 @HiltViewModel
@@ -53,12 +55,48 @@ class PlanCaptureViewModel @Inject constructor(
     // ── Navigation entre options ──────────────────────────────────────────────
 
     fun onCanvasOptionSelected() {
-        _uiState.update { it.copy(step = PlanStep.CANVAS_BUILDER) }
+        // « Commencer » / « + Créer » = nouveau plan vierge : on repart toujours de zéro,
+        // même si un plan enregistré a été chargé puis abandonné juste avant.
+        _uiState.update {
+            it.copy(
+                step          = PlanStep.CANVAS_BUILDER,
+                editableRooms = emptyList(),
+                detectedRooms = emptyList(),
+                planImagePath = null
+            )
+        }
     }
 
     /** Retour vers le choix initial (utilisé par le bouton Retour et le geste système). */
     fun backToPicker() {
         _uiState.update { it.copy(step = PlanStep.OPTION_PICKER) }
+    }
+
+    /** Ouvre la liste complète des plans enregistrés (« Tout voir »). */
+    fun showAllPlans() {
+        _uiState.update { it.copy(step = PlanStep.ALL_PLANS) }
+    }
+
+    // ── Actions sur un plan enregistré (menu ⋯) ───────────────────────────────
+
+    fun startRename(plan: SavedPlan) {
+        _uiState.update { it.copy(renameTarget = plan) }
+    }
+
+    fun cancelRename() {
+        _uiState.update { it.copy(renameTarget = null) }
+    }
+
+    fun renamePlan(planId: String, newName: String) {
+        if (newName.isBlank()) return
+        viewModelScope.launch {
+            savedPlanRepository.rename(planId, newName)
+            _uiState.update { it.copy(renameTarget = null) }
+        }
+    }
+
+    fun duplicatePlan(planId: String) {
+        viewModelScope.launch { savedPlanRepository.duplicate(planId) }
     }
 
     fun onPhotoOptionSelected() {
