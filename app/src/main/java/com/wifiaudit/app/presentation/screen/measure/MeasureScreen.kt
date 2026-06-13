@@ -55,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -137,9 +138,13 @@ fun MeasureScreen(
         }
     }
 
+    val isGuidedPhase     = uiState.guidedDevice != null
     // En mode expert, la phase libre ne nécessite ni FAB ni overlay plein écran
     val isExpertFreePhase = uiState.scanMode == com.wifiaudit.app.domain.model.ScanMode.FAST &&
-        uiState.guidedDevice == null
+        !isGuidedPhase
+    // Tap sur l'icône de l'appareil courant déclenche la mesure (calibrage uniquement)
+    val onGuidedDeviceTap: (() -> Unit)? = if (isGuidedPhase && !uiState.isLoading)
+        { { viewModel.takeMeasurement() } } else null
 
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -151,7 +156,7 @@ fun MeasureScreen(
         },
         floatingActionButton = {
             AnimatedVisibility(
-                visible = !isExpertFreePhase && uiState.pendingPosition != null && !uiState.isLoading,
+                visible = !isExpertFreePhase && !isGuidedPhase && uiState.pendingPosition != null && !uiState.isLoading,
                 enter = fadeIn() + scaleIn(),
                 exit = fadeOut()
             ) {
@@ -192,19 +197,24 @@ fun MeasureScreen(
                 modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
             )
 
-            // ─── Bannière d'étape (guidage + feu vert) ────────────────────
-            val showBanner = uiState.guidedDevice != null ||
-                (uiState.scanCooldownSeconds > 0 && uiState.measurementCount > 0)
-            AnimatedVisibility(
-                visible = showBanner,
-                enter = slideInVertically { -it } + fadeIn(),
-                exit  = slideOutVertically { -it } + fadeOut()
-            ) {
-                StepGuidanceBanner(
-                    guidedDevice    = uiState.guidedDevice,
-                    cooldownSeconds = uiState.scanCooldownSeconds,
-                    modifier = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
+            // ─── Bannière d'étape ─────────────────────────────────────────
+            if (isGuidedPhase) {
+                CalibrationInstructionBanner(
+                    guidedDevice = uiState.guidedDevice!!,
+                    modifier     = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
                 )
+            } else {
+                AnimatedVisibility(
+                    visible = uiState.scanCooldownSeconds > 0 && uiState.measurementCount > 0,
+                    enter = slideInVertically { -it } + fadeIn(),
+                    exit  = slideOutVertically { -it } + fadeOut()
+                ) {
+                    StepGuidanceBanner(
+                        guidedDevice    = null,
+                        cooldownSeconds = uiState.scanCooldownSeconds,
+                        modifier = Modifier.padding(start = AppSpacing.XXL, end = AppSpacing.XXL, bottom = AppSpacing.SM)
+                    )
+                }
             }
 
             // ─── Plan interactif + zone hors-plan ────────────────────────
@@ -231,11 +241,12 @@ fun MeasureScreen(
                         isLoading            = uiState.isLoading,
                         onTap                = { x, y ->
                             if (isExpertFreePhase) viewModel.selectAndMeasure(x, y)
-                            else viewModel.selectPosition(x, y)
+                            else if (!isGuidedPhase) viewModel.selectPosition(x, y)
                         },
                         gatewayPosition      = creationState.gatewayPosition?.takeIf { it.x >= 0f },
                         repeaterPositions    = creationState.repeaterPositions.filter { it.position.x >= 0f },
                         guidedDeviceId       = uiState.guidedDevice?.deviceId,
+                        onTapGuidedDevice    = onGuidedDeviceTap,
                         onRemoveMeasurement  = if (isExpertFreePhase) viewModel::removeMeasurement else null,
                         modifier             = Modifier.fillMaxSize()
                     )
@@ -249,6 +260,7 @@ fun MeasureScreen(
                     isPendingOffPlan            = isPendingOffPlan,
                     isLoading                   = uiState.isLoading,
                     onTap                       = { viewModel.selectPosition(-1f, -1f) },
+                    onTapHighlightedDevice      = onGuidedDeviceTap,
                     modifier                    = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = AppSpacing.LG)
@@ -385,6 +397,7 @@ private fun InteractivePlanView(
     gatewayPosition: Position? = null,
     repeaterPositions: List<RepeaterPosition> = emptyList(),
     guidedDeviceId: String? = null,
+    onTapGuidedDevice: (() -> Unit)? = null,
     onRemoveMeasurement: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -404,6 +417,9 @@ private fun InteractivePlanView(
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
 
+    // Évite une stale closure dans pointerInput(Unit) quand isGuidedPhase ou isExpertFreePhase changent.
+    val latestOnTap = rememberUpdatedState(onTap)
+
     Box(
         modifier = modifier
             .transformable(state = transformState)
@@ -416,7 +432,7 @@ private fun InteractivePlanView(
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     if (imageSize != IntSize.Zero) {
-                        onTap(
+                        latestOnTap.value(
                             (offset.x / imageSize.width).coerceIn(0f, 1f),
                             (offset.y / imageSize.height).coerceIn(0f, 1f)
                         )
@@ -470,6 +486,7 @@ private fun InteractivePlanView(
                     icon = Icons.Outlined.Router,
                     color = AppColors.Accent,
                     isHighlighted = guidedDeviceId == "gateway",
+                    onTap = if (guidedDeviceId == "gateway") onTapGuidedDevice else null,
                     imageSize = imageSize, density = density
                 )
             }
@@ -479,6 +496,7 @@ private fun InteractivePlanView(
                     icon = Icons.Outlined.SettingsInputAntenna,
                     color = AppColors.SignalFair,
                     isHighlighted = guidedDeviceId == rep.id,
+                    onTap = if (guidedDeviceId == rep.id) onTapGuidedDevice else null,
                     index = index + 1,
                     imageSize = imageSize, density = density
                 )
@@ -630,6 +648,59 @@ private fun StepGuidanceBanner(
     }
 }
 
+// ─── Bannière calibrage : homme qui marche → icône de l'appareil ─────────────
+
+@Composable
+private fun CalibrationInstructionBanner(
+    guidedDevice: GuidedDeviceInfo,
+    modifier: Modifier = Modifier
+) {
+    val color = if (guidedDevice.isGateway) AppColors.Accent else AppColors.SignalFair
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(color.copy(alpha = 0.09f), AppShape.Medium)
+            .border(1.dp, color.copy(alpha = 0.25f), AppShape.Medium)
+            .padding(horizontal = AppSpacing.LG, vertical = AppSpacing.MD),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+    ) {
+        // Animation visuelle de la démarche : homme → flèche → appareil
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector        = Icons.Outlined.DirectionsWalk,
+                contentDescription = null,
+                tint               = AppColors.TextSecondary,
+                modifier           = Modifier.size(22.dp)
+            )
+            Text("→", style = AppType.BodyPrimary, color = AppColors.TextMeta)
+            Icon(
+                imageVector        = if (guidedDevice.isGateway) Icons.Outlined.Router
+                                     else Icons.Outlined.SettingsInputAntenna,
+                contentDescription = null,
+                tint               = color,
+                modifier           = Modifier.size(22.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text  = "Approchez-vous de ${guidedDevice.label}",
+                style = AppType.BodyEmphasis,
+                color = AppColors.TextPrimary
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text  = "Appuyez sur l'icône pour mesurer",
+                style = AppType.ControlLabel,
+                color = AppColors.TextSecondary
+            )
+        }
+    }
+}
+
 // ─── Overlay plein écran pendant la mesure ───────────────────────────────────
 
 @Composable
@@ -708,7 +779,8 @@ private fun DevicePin(
     isHighlighted: Boolean,
     imageSize: IntSize,
     density: androidx.compose.ui.unit.Density,
-    index: Int? = null
+    index: Int? = null,
+    onTap: (() -> Unit)? = null
 ) {
     // Zone de layout plus grande quand actif pour loger l'anneau extérieur
     val containerDp = if (isHighlighted) 68.dp else 28.dp
@@ -765,6 +837,10 @@ private fun DevicePin(
                     width = if (isHighlighted) 2.5.dp else 1.5.dp,
                     color = if (isHighlighted) Color.White.copy(alpha = 0.7f) else color.copy(alpha = 0.7f),
                     shape = AppShape.Circle
+                )
+                .then(
+                    if (onTap != null) Modifier.pointerInput(Unit) { detectTapGestures { onTap() } }
+                    else Modifier
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -857,6 +933,7 @@ private fun HorsPlanMeasureZone(
     isPendingOffPlan: Boolean,
     isLoading: Boolean,
     onTap: () -> Unit,
+    onTapHighlightedDevice: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val pulseTransition = rememberInfiniteTransition(label = "zone_pulse")
@@ -918,7 +995,12 @@ private fun HorsPlanMeasureZone(
                             modifier = Modifier
                                 .size(if (isGatewayHighlighted) 36.dp else 32.dp)
                                 .background(if (isGatewayHighlighted) pinColor else Color.White, AppShape.Circle)
-                                .border(2.dp, if (isGatewayHighlighted) Color.White.copy(alpha = 0.6f) else pinColor, AppShape.Circle),
+                                .border(2.dp, if (isGatewayHighlighted) Color.White.copy(alpha = 0.6f) else pinColor, AppShape.Circle)
+                                .then(
+                                    if (isGatewayHighlighted && onTapHighlightedDevice != null)
+                                        Modifier.pointerInput(Unit) { detectTapGestures { onTapHighlightedDevice() } }
+                                    else Modifier
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -948,7 +1030,12 @@ private fun HorsPlanMeasureZone(
                             modifier = Modifier
                                 .size(if (isThisHighlighted) 36.dp else 32.dp)
                                 .background(if (isThisHighlighted) repColor else Color.White, AppShape.Circle)
-                                .border(2.dp, if (isThisHighlighted) Color.White.copy(alpha = 0.6f) else repColor, AppShape.Circle),
+                                .border(2.dp, if (isThisHighlighted) Color.White.copy(alpha = 0.6f) else repColor, AppShape.Circle)
+                                .then(
+                                    if (isThisHighlighted && onTapHighlightedDevice != null)
+                                        Modifier.pointerInput(Unit) { detectTapGestures { onTapHighlightedDevice() } }
+                                    else Modifier
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
