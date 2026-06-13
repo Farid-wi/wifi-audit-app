@@ -126,16 +126,7 @@ fun MeasureScreen(
         }
     }
 
-    // Choix du mode de scan au démarrage de la session (et sur demande via la puce d'en-tête).
-    if (uiState.showScanModeDialog) {
-        ScanModeDialog(
-            fastModeAvailable = uiState.fastModeAvailable,
-            isDetecting       = uiState.isDetectingThrottle,
-            detectionMessage  = uiState.throttleDetectionMessage,
-            onChooseStandard  = viewModel::chooseStandardMode,
-            onVerifyFast      = viewModel::verifyFastMode
-        )
-    }
+
 
     val haptic = LocalHapticFeedback.current
     // Retour haptique court à la fin de chaque mesure réussie.
@@ -188,13 +179,12 @@ fun MeasureScreen(
                 .padding(padding)
         ) {
             // ─── En-tête ──────────────────────────────────────────────────
-            StepHeader(currentStep = 4, onBack = onBack)
+            StepHeader(currentStep = 5, onBack = onBack)
 
             MeasureHeader(
                 count         = uiState.measurementCount,
                 isGuidedPhase = uiState.guidedDevice != null,
                 scanMode      = uiState.scanMode,
-                onModeClick   = viewModel::openScanModeDialog,
                 modifier      = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)
             )
 
@@ -215,7 +205,7 @@ fun MeasureScreen(
 
             // ─── Plan interactif ──────────────────────────────────────────
             // Padding bas : le contenu du plan reste au-dessus du FAB « Mesurer ici ».
-            Box(modifier = Modifier.weight(1f).padding(bottom = 72.dp)) {
+            Box(modifier = Modifier.weight(1f).padding(horizontal = AppSpacing.LG).padding(top = 14.dp, bottom = 86.dp)) {
                 InteractivePlanView(
                     planImagePath      = uiState.planImagePath ?: "",
                     rooms              = creationState.rooms,
@@ -300,7 +290,6 @@ private fun MeasureHeader(
     count: Int,
     isGuidedPhase: Boolean,
     scanMode: com.wifiaudit.app.domain.model.ScanMode,
-    onModeClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
@@ -314,7 +303,7 @@ private fun MeasureHeader(
                 color = AppColors.TextPrimary,
                 modifier = Modifier.weight(1f)
             )
-            ScanModeChip(scanMode = scanMode, onClick = onModeClick)
+            ScanModeChip(scanMode = scanMode)
         }
         Spacer(Modifier.height(AppSpacing.SM))
         MeasureGauge(count = count)
@@ -357,11 +346,10 @@ private fun MeasureGauge(count: Int) {
     }
 }
 
-/** Petite puce cliquable affichant le mode actif — rouvre le dialog de choix du mode. */
+/** Petite puce (lecture seule) indiquant le mode actif. */
 @Composable
 private fun ScanModeChip(
-    scanMode: com.wifiaudit.app.domain.model.ScanMode,
-    onClick: () -> Unit
+    scanMode: com.wifiaudit.app.domain.model.ScanMode
 ) {
     val isFast = scanMode == com.wifiaudit.app.domain.model.ScanMode.FAST
     Row(
@@ -369,7 +357,6 @@ private fun ScanModeChip(
             .clip(AppShape.Pill)
             .background(AppColors.Surface)
             .border(1.dp, AppColors.BorderSoft, AppShape.Pill)
-            .clickable(onClick = onClick)
             .padding(horizontal = AppSpacing.MD, vertical = AppSpacing.XS),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -380,7 +367,7 @@ private fun ScanModeChip(
         )
         Spacer(Modifier.width(AppSpacing.XS))
         Text(
-            text = if (isFast) "Mode rapide" else "Mode standard",
+            text = if (isFast) "Mode expert" else "Mode standard",
             style = AppType.ControlLabel,
             color = AppColors.TextSecondary
         )

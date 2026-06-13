@@ -1,6 +1,5 @@
 package com.wifiaudit.app.presentation.screen.measure
 
-import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -14,7 +13,6 @@ import com.wifiaudit.app.domain.model.RepeaterPosition
 import com.wifiaudit.app.domain.model.ScanMode
 import com.wifiaudit.app.domain.model.SignalQuality
 import com.wifiaudit.app.domain.repository.AuditRepository
-import com.wifiaudit.app.domain.usecase.DetectThrottlingUseCase
 import com.wifiaudit.app.domain.usecase.GetScanCooldownUseCase
 import com.wifiaudit.app.domain.usecase.GetScanModeUseCase
 import com.wifiaudit.app.domain.usecase.LogScanSessionSummaryUseCase
@@ -61,25 +59,15 @@ data class MeasureUiState(
     val guidedDevice: GuidedDeviceInfo? = null,
     /** Secondes à patienter avant de pouvoir mesurer (throttle Android). 0 = prêt. */
     val scanCooldownSeconds: Int = 0,
-    /** Dialog de choix du mode de scan (affiché à l'entrée de l'étape Mesures + sur demande). */
-    val showScanModeDialog: Boolean = false,
-    /** Mode rapide proposé uniquement sur Android 10+. */
-    val fastModeAvailable: Boolean = false,
     /** Mode de scan actuellement actif. */
     val scanMode: ScanMode = ScanMode.STANDARD,
-    /** Détection empirique du throttling en cours (3 scans espacés de ~5 s). */
-    val isDetectingThrottle: Boolean = false,
-    /** Message de résultat de la détection (échec ou throttling encore actif). */
-    val throttleDetectionMessage: String? = null,
     /** Message éphémère (toast) — ex. bascule auto en mode standard. */
     val toastMessage: String? = null
 ) {
     val measurementCount: Int get() = measurements.size
     /** Terminer uniquement après la phase guidée et le minimum de mesures. */
     val canFinish: Boolean get() = measurementCount >= MIN_MEASUREMENTS && guidedDevice == null
-    /** Le bouton « Mesurer ici » est actionnable (jamais pendant le choix du mode). */
-    val canMeasure: Boolean get() =
-        pendingPosition != null && !isLoading && scanCooldownSeconds == 0 && !showScanModeDialog
+    val canMeasure: Boolean get() = pendingPosition != null && !isLoading && scanCooldownSeconds == 0
 }
 
 const val MIN_MEASUREMENTS = 5
@@ -100,7 +88,6 @@ class MeasureViewModel @Inject constructor(
     private val getScanCooldownUseCase: GetScanCooldownUseCase,
     private val getScanModeUseCase: GetScanModeUseCase,
     private val setScanModeUseCase: SetScanModeUseCase,
-    private val detectThrottlingUseCase: DetectThrottlingUseCase,
     private val logScanSessionSummaryUseCase: LogScanSessionSummaryUseCase,
     private val auditRepository: AuditRepository
 ) : ViewModel() {
@@ -128,17 +115,9 @@ class MeasureViewModel @Inject constructor(
     val uiState: StateFlow<MeasureUiState> = _uiState.asStateFlow()
 
     init {
-        // Initialise le mode courant + disponibilité du mode rapide (Android 10+), et ouvre le
-        // dialog de choix au démarrage de la session de mesure.
         val currentMode = getScanModeUseCase()
         intervalMs = intervalForMode(currentMode)
-        _uiState.update {
-            it.copy(
-                scanMode           = currentMode,
-                fastModeAvailable  = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
-                showScanModeDialog = true
-            )
-        }
+        _uiState.update { it.copy(scanMode = currentMode) }
 
         // Ticker : compte à rebours « feu vert » = max(cadence délibérée, throttle Android).
         viewModelScope.launch {
@@ -162,60 +141,6 @@ class MeasureViewModel @Inject constructor(
 
     // ─── Choix du mode de scan ───────────────────────────────────────────────
 
-    /** Confirme le mode standard (comportement par défaut) et ferme le dialog. */
-    fun chooseStandardMode() {
-        applyMode(ScanMode.STANDARD)
-        _uiState.update { it.copy(showScanModeDialog = false, throttleDetectionMessage = null) }
-    }
-
-    /**
-     * Lance la détection empirique du throttling (3 scans espacés de ~5 s). Si le throttling est
-     * désactivé → active le mode rapide et ferme le dialog. Sinon → message explicatif, le dialog
-     * reste ouvert pour que l'utilisateur corrige le réglage et réessaie.
-     */
-    fun verifyFastMode() {
-        if (_uiState.value.isDetectingThrottle) return
-        _uiState.update { it.copy(isDetectingThrottle = true, throttleDetectionMessage = null) }
-        viewModelScope.launch {
-            detectThrottlingUseCase().fold(
-                onSuccess = { disabled ->
-                    if (disabled) {
-                        applyMode(ScanMode.FAST)
-                        _uiState.update {
-                            it.copy(
-                                isDetectingThrottle = false,
-                                showScanModeDialog = false,
-                                throttleDetectionMessage = null,
-                                toastMessage = "Mode rapide activé"
-                            )
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                isDetectingThrottle = false,
-                                throttleDetectionMessage =
-                                    "La limitation de recherche Wi-Fi est encore active. " +
-                                    "Vérifiez le réglage dans les options développeur puis réessayez."
-                            )
-                        }
-                    }
-                },
-                onFailure = { e ->
-                    _uiState.update {
-                        it.copy(
-                            isDetectingThrottle = false,
-                            throttleDetectionMessage = e.message ?: "Vérification impossible."
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    /** Rouvre le dialog de choix du mode (point d'entrée « réglages » depuis l'écran Mesures). */
-    fun openScanModeDialog() {
-        _uiState.update { it.copy(showScanModeDialog = true, throttleDetectionMessage = null) }
-    }
 
     fun consumeToast() {
         _uiState.update { it.copy(toastMessage = null) }

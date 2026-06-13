@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.equipment.EquipmentPlacementScreen
 import com.wifiaudit.app.presentation.screen.measure.MeasureScreen
+import com.wifiaudit.app.presentation.screen.measure.ScanModeScreen
 import com.wifiaudit.app.presentation.screen.network.NetworkSelectionScreen
 import com.wifiaudit.app.presentation.screen.plan.PlanCaptureScreen
 import com.wifiaudit.app.presentation.screen.results.ResultsScreen
@@ -17,6 +18,7 @@ sealed class Screen(val route: String) {
     data object Plan      : Screen("plan")
     data object Equipment : Screen("equipment")
     data object Network   : Screen("network")
+    data object ScanMode  : Screen("scan_mode")
     data object Measure   : Screen("measure")
     data object Results   : Screen("results")
 }
@@ -46,6 +48,12 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
         composable(Screen.Network.route) {
             NetworkSelectionScreen(
                 auditCreationViewModel = auditCreationViewModel,
+                onNext = { navController.navigate(Screen.ScanMode.route) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.ScanMode.route) {
+            ScanModeScreen(
                 onNext = { navController.navigate(Screen.Measure.route) },
                 onBack = { navController.popBackStack() }
             )

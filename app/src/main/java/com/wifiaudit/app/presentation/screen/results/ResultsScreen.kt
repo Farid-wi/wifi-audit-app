@@ -114,7 +114,7 @@ fun ResultsScreen(
             .background(AppColors.Background)
             .systemBarsPadding()
     ) {
-        StepHeader(currentStep = 5)
+        StepHeader(currentStep = 6)
 
         if (uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

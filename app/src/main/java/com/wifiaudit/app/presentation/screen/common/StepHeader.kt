@@ -32,7 +32,7 @@ import com.wifiaudit.app.presentation.theme.AppSpacing
 @Composable
 fun StepHeader(
     currentStep: Int,
-    totalSteps: Int = 5,
+    totalSteps: Int = 6,
     onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {

@@ -95,7 +95,7 @@ fun EquipmentPlacementScreen(
             Text(instruction, style = AppType.BodyPrimary, color = AppColors.TextMuted)
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        Box(modifier = Modifier.weight(1f).padding(horizontal = AppSpacing.LG).padding(14.dp)) {
             EquipmentPlanView(
                 planImagePath = creationState.planImagePath,
                 rooms         = creationState.rooms,
