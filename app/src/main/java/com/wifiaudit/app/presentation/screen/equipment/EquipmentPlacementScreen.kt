@@ -84,7 +84,8 @@ fun EquipmentPlacementScreen(
         Column(modifier = Modifier.padding(horizontal = AppSpacing.XXL, vertical = AppSpacing.MD)) {
             val (title, instruction) = when {
                 uiState.gatewayPosition == null ->
-                    "Où se trouve votre box ?" to "Appuyez sur le plan à l'endroit où elle est placée."
+                    "Placez votre box internet sur le plan" to
+                    "Appuyez sur le plan à l'endroit où elle se trouve. Si elle est à un autre étage, placez-la dans le cadre en bas."
                 !uiState.repeaterConfirmed ->
                     "Avez-vous un répéteur Wi-Fi ?" to "Glissez la box pour l'ajuster. Un répéteur amplifie le signal dans les zones éloignées."
                 else ->
@@ -102,15 +103,25 @@ fun EquipmentPlacementScreen(
                 uiState       = uiState,
                 onTap         = { x, y ->
                     when {
-                        // Tant que le répéteur n'est pas confirmé, un tap (re)place la box → déplaçable.
                         !uiState.repeaterConfirmed -> viewModel.placeGateway(x, y)
                         else                       -> viewModel.addRepeater(x, y)
                     }
                 },
-                onMoveGateway   = viewModel::moveGatewayBy,
-                onMoveRepeater  = viewModel::moveRepeaterBy,
+                onMoveGateway    = viewModel::moveGatewayBy,
+                onMoveRepeater   = viewModel::moveRepeaterBy,
                 onRemoveRepeater = viewModel::removeRepeater,
                 modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (!uiState.repeaterConfirmed) {
+            OffFloorGatewayZone(
+                occupied = uiState.gatewayOnDifferentFloor,
+                onTap    = viewModel::placeGatewayOffFloor,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AppSpacing.LG)
+                    .padding(bottom = AppSpacing.SM)
             )
         }
 
@@ -230,11 +241,12 @@ private fun EquipmentPlanView(
                 }
         }
 
-        uiState.gatewayPosition?.let { (gx, gy) ->
+        if (uiState.gatewayPosition != null && !uiState.gatewayOnDifferentFloor) {
+            val (gx, gy) = uiState.gatewayPosition
             DraggableEquipmentPin(
                 x = gx, y = gy, type = EquipmentType.GATEWAY,
                 imageSize = planSize, density = density,
-                onMoveBy = onMoveGateway   // box requise → pas de suppression
+                onMoveBy = onMoveGateway
             )
         }
         uiState.repeaterPositions.forEachIndexed { index, (rx, ry) ->
@@ -277,6 +289,43 @@ private fun CanvasRoomsPlan(rooms: List<CanvasRoom>, modifier: Modifier = Modifi
                          color = color, modifier = Modifier.padding(horizontal = 4.dp))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun OffFloorGatewayZone(
+    occupied: Boolean,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(64.dp)
+            .border(1.5.dp, Color.Black, AppShape.Medium)
+            .pointerInput(Unit) { detectTapGestures { onTap() } },
+        contentAlignment = Alignment.Center
+    ) {
+        if (occupied) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.XS)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Color.White, AppShape.Circle)
+                        .border(2.dp, AppColors.Accent, AppShape.Circle),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Router, contentDescription = null,
+                         tint = AppColors.Accent, modifier = Modifier.size(18.dp))
+                }
+                Text("Box placée à un autre étage",
+                     style = AppType.ControlLabel, color = AppColors.TextMuted)
+            }
+        } else {
+            Text("Autre étage", style = AppType.ControlLabel, color = AppColors.TextMuted)
         }
     }
 }

@@ -11,8 +11,9 @@ import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
 data class EquipmentPlacementUiState(
-    val gatewayPosition: Pair<Float, Float>?    = null,
-    val repeaterConfirmed: Boolean              = false,
+    val gatewayPosition: Pair<Float, Float>?        = null,
+    val gatewayOnDifferentFloor: Boolean            = false,
+    val repeaterConfirmed: Boolean                  = false,
     val repeaterPositions: List<Pair<Float, Float>> = emptyList()
 )
 
@@ -23,7 +24,11 @@ class EquipmentPlacementViewModel @Inject constructor() : ViewModel() {
     val uiState: StateFlow<EquipmentPlacementUiState> = _uiState.asStateFlow()
 
     fun placeGateway(x: Float, y: Float) {
-        _uiState.update { it.copy(gatewayPosition = x to y) }
+        _uiState.update { it.copy(gatewayPosition = x to y, gatewayOnDifferentFloor = false) }
+    }
+
+    fun placeGatewayOffFloor() {
+        _uiState.update { it.copy(gatewayPosition = -1f to -1f, gatewayOnDifferentFloor = true) }
     }
 
     /** Déplacement relatif de la box (drag sur le plan), borné au plan. */
