@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CameraAlt
@@ -51,10 +52,14 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Wifi
+import com.wifiaudit.app.domain.model.OverallScore
+import com.wifiaudit.app.presentation.screen.home.AuditListItem
+import com.wifiaudit.app.presentation.screen.home.HomeViewModel
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -132,9 +137,12 @@ import java.util.Locale
 fun PlanCaptureScreen(
     auditCreationViewModel: AuditCreationViewModel,
     onNext: () -> Unit,
-    viewModel: PlanCaptureViewModel = hiltViewModel()
+    onOpenAudit: (String) -> Unit = {},
+    viewModel: PlanCaptureViewModel = hiltViewModel(),
+    homeViewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val homeUiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val photoFile = remember { createPlanFile(context) }
@@ -202,12 +210,14 @@ fun PlanCaptureScreen(
             PlanStep.OPTION_PICKER ->
                 OptionPickerStep(
                     savedPlans       = uiState.savedPlans,
+                    recentAudits     = homeUiState.audits,
                     onCanvasSelected = viewModel::onCanvasOptionSelected,
                     onLoadPlan       = viewModel::loadSavedPlan,
                     onRenamePlan     = viewModel::startRename,
                     onDuplicatePlan  = viewModel::duplicatePlan,
                     onDeletePlan     = viewModel::deleteSavedPlan,
-                    onSeeAllPlans    = viewModel::showAllPlans
+                    onSeeAllPlans    = viewModel::showAllPlans,
+                    onOpenAudit      = onOpenAudit
                 )
 
             PlanStep.ALL_PLANS ->
@@ -261,12 +271,14 @@ private fun defaultPlanName(): String =
 @Composable
 private fun OptionPickerStep(
     savedPlans: List<SavedPlan>,
+    recentAudits: List<AuditListItem>,
     onCanvasSelected: () -> Unit,
     onLoadPlan:       (SavedPlan) -> Unit,
     onRenamePlan:     (SavedPlan) -> Unit,
     onDuplicatePlan:  (String) -> Unit,
     onDeletePlan:     (String) -> Unit,
-    onSeeAllPlans:    () -> Unit
+    onSeeAllPlans:    () -> Unit,
+    onOpenAudit:      (String) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -310,11 +322,8 @@ private fun OptionPickerStep(
             }
         }
 
-        // ③ Mes diagnostics — teaser (écran à venir)
-        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)) {
-            SectionHeader(title = "Mes diagnostics")
-            DiagnosticsTeaserCard()
-        }
+        // ③ Mes diagnostics — liste déroulante des derniers audits
+        DiagnosticsExpandableSection(audits = recentAudits, onOpenAudit = onOpenAudit)
     }
 }
 
@@ -539,30 +548,105 @@ private fun CreatePlanCard(onClick: () -> Unit) {
 }
 
 @Composable
-private fun DiagnosticsTeaserCard() {
+private fun DiagnosticsExpandableSection(
+    audits: List<AuditListItem>,
+    onOpenAudit: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(audits.isNotEmpty()) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.MD)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(AppShape.Small)
+                .clickable { expanded = !expanded }
+                .padding(vertical = AppSpacing.XS),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (audits.isEmpty()) "Mes diagnostics"
+                else "Mes diagnostics (${audits.size})",
+                style = AppType.BodyEmphasis, color = AppColors.TextPrimary
+            )
+            Icon(
+                if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = if (expanded) "Réduire" else "Développer",
+                tint = AppColors.TextMuted, modifier = Modifier.size(20.dp)
+            )
+        }
+
+        AnimatedVisibility(visible = expanded, enter = fadeIn(tween(180)), exit = fadeOut(tween(120))) {
+            if (audits.isEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AppColors.SurfaceAlt, AppShape.Large)
+                        .padding(AppSpacing.XL),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
+                ) {
+                    Icon(Icons.Outlined.Wifi, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Aucun diagnostic", style = AppType.BodyEmphasis, color = AppColors.TextSecondary)
+                        Text(
+                            "Vos audits apparaîtront ici après votre premier diagnostic.",
+                            style = AppType.ControlLabel, color = AppColors.TextMuted
+                        )
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)) {
+                    audits.take(5).forEach { audit ->
+                        DiagnosticAuditRow(audit = audit, onClick = { onOpenAudit(audit.id) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticAuditRow(audit: AuditListItem, onClick: () -> Unit) {
+    val dateStr = remember(audit.createdAt) {
+        SimpleDateFormat("d MMM yyyy", Locale.FRENCH).format(Date(audit.createdAt))
+    }
+    val scoreColor = when (audit.score) {
+        OverallScore.GOOD -> AppColors.SignalGood
+        OverallScore.FAIR -> AppColors.SignalFair
+        OverallScore.POOR -> AppColors.SignalPoor
+        null              -> AppColors.TextMuted
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppColors.SurfaceAlt, AppShape.Large)
-            .padding(AppSpacing.XL),
+            .clip(AppShape.Large)
+            .background(AppColors.Surface, AppShape.Large)
+            .border(1.dp, AppColors.BorderSoft, AppShape.Large)
+            .clickable(onClick = onClick)
+            .padding(horizontal = AppSpacing.LG, vertical = AppSpacing.MD),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.MD)
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .background(Color.White, AppShape.Medium),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Outlined.Schedule, null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
-        }
+                .size(10.dp)
+                .background(scoreColor, AppShape.Circle)
+        )
         Column(Modifier.weight(1f)) {
-            Text("Bientôt disponible", style = AppType.BodyEmphasis, color = AppColors.TextSecondary)
             Text(
-                "Retrouvez ici l'historique de vos audits et leurs heatmaps.",
-                style = AppType.ControlLabel, color = AppColors.TextMuted
+                audit.ssid, style = AppType.BodyEmphasis, color = AppColors.TextPrimary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "$dateStr · ${audit.roomCount} pièce${if (audit.roomCount > 1) "s" else ""} · ${audit.measurementCount} mesure${if (audit.measurementCount > 1) "s" else ""}",
+                style = AppType.Micro, color = AppColors.TextMuted
             )
         }
+        Icon(
+            Icons.AutoMirrored.Outlined.KeyboardArrowRight, null,
+            tint = AppColors.TextMuted, modifier = Modifier.size(18.dp)
+        )
     }
 }
 

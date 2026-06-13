@@ -15,7 +15,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.equipment.EquipmentPlacementScreen
-import com.wifiaudit.app.presentation.screen.home.HomeScreen
 import com.wifiaudit.app.presentation.screen.measure.MeasureScreen
 import com.wifiaudit.app.presentation.screen.measure.ScanModeScreen
 import com.wifiaudit.app.presentation.screen.network.NetworkSelectionScreen
@@ -39,27 +38,19 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
     NavHost(
         navController    = navController,
-        startDestination = Screen.Home.route,
+        startDestination = Screen.Plan.route,
         enterTransition  = { slideInHorizontally(tween(500)) { it }  + fadeIn(tween(500))  },
         exitTransition   = { slideOutHorizontally(tween(350)) { -it } + fadeOut(tween(350)) },
         popEnterTransition  = { slideInHorizontally(tween(500)) { -it } + fadeIn(tween(500))  },
         popExitTransition   = { slideOutHorizontally(tween(350)) { it }  + fadeOut(tween(350)) }
     ) {
-        composable(Screen.Home.route) {
-            HomeScreen(
-                onNewAudit  = {
-                    auditCreationViewModel.reset()
-                    navController.navigate(Screen.Plan.route)
-                },
-                onOpenAudit = { auditId ->
-                    navController.navigate("${Screen.Results.route}?auditId=$auditId")
-                }
-            )
-        }
         composable(Screen.Plan.route) {
             PlanCaptureScreen(
                 auditCreationViewModel = auditCreationViewModel,
-                onNext = { navController.navigate(Screen.Equipment.route) }
+                onNext = { navController.navigate(Screen.Equipment.route) },
+                onOpenAudit = { auditId ->
+                    navController.navigate("${Screen.Results.route}?auditId=$auditId")
+                }
             )
         }
         composable(Screen.Equipment.route) {
@@ -99,7 +90,7 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
                 onNewAudit = {
                     auditCreationViewModel.reset()
                     navController.navigate(Screen.Plan.route) {
-                        popUpTo(Screen.Home.route)
+                        popUpTo(Screen.Plan.route)
                     }
                 },
                 onBack = auditId?.let { { navController.popBackStack() } }
