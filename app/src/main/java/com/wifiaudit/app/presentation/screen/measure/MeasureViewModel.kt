@@ -118,15 +118,18 @@ class MeasureViewModel @Inject constructor(
         intervalMs = intervalForMode(currentMode)
         _uiState.update { it.copy(scanMode = currentMode) }
 
-        // Ticker : compte à rebours « feu vert » = max(cadence délibérée, throttle Android).
+        // Ticker : compte à rebours « feu vert » — ignoré en mode expert (cooldown toujours 0).
         viewModelScope.launch {
             while (true) {
-                val throttleMs = getScanCooldownUseCase()
-                val deliberateMs = if (lastMeasurementAt == 0L) 0L
-                    else (intervalMs - (SystemClock.elapsedRealtime() - lastMeasurementAt))
-                        .coerceAtLeast(0L)
-                val remainingMs = maxOf(throttleMs, deliberateMs)
-                val seconds = if (remainingMs <= 0) 0 else ceil(remainingMs / 1000.0).toInt()
+                val isExpert = _uiState.value.scanMode == ScanMode.FAST
+                val seconds = if (isExpert) 0 else {
+                    val throttleMs = getScanCooldownUseCase()
+                    val deliberateMs = if (lastMeasurementAt == 0L) 0L
+                        else (intervalMs - (SystemClock.elapsedRealtime() - lastMeasurementAt))
+                            .coerceAtLeast(0L)
+                    val remainingMs = maxOf(throttleMs, deliberateMs)
+                    if (remainingMs <= 0) 0 else ceil(remainingMs / 1000.0).toInt()
+                }
                 if (seconds != _uiState.value.scanCooldownSeconds) {
                     _uiState.update { it.copy(scanCooldownSeconds = seconds) }
                 }
