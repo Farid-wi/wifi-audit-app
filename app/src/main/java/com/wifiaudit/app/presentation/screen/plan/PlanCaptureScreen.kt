@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -75,12 +76,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -647,32 +651,65 @@ private fun CanvasBuilderStep(
             )
             Spacer(Modifier.height(AppSpacing.MD))
 
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = AppSpacing.SM),
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM)
-            ) {
-                items(RoomType.entries) { type ->
-                    FilterChip(
-                        selected = false,
-                        onClick  = {
-                            val slot = ROOM_SLOTS.getOrElse(rooms.size % ROOM_SLOTS.size) { ROOM_SLOTS[0] }
-                            val shift = (rooms.size / ROOM_SLOTS.size) * 0.03f
-                            val bounds = RoomBounds(
-                                left   = (slot.left   + shift).coerceIn(0f, 0.9f),
-                                top    = (slot.top    + shift).coerceIn(0f, 0.9f),
-                                right  = (slot.right  + shift).coerceIn(0.1f, 1f),
-                                bottom = (slot.bottom + shift).coerceIn(0.1f, 1f)
+            val chipListState = rememberLazyListState()
+            val showLeftFade by remember {
+                derivedStateOf {
+                    chipListState.firstVisibleItemIndex > 0 ||
+                    chipListState.firstVisibleItemScrollOffset > 0
+                }
+            }
+            val fadeColor = AppColors.Background
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawWithContent {
+                        drawContent()
+                        if (showLeftFade) {
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(fadeColor, Color.Transparent),
+                                    startX = 0f, endX = 48.dp.toPx()
+                                )
                             )
-                            onUpdate(rooms + CanvasRoom(type = type, bounds = bounds))
-                        },
-                        label  = { Text(type.displayName, style = AppType.ControlLabel) },
-                        colors = FilterChipDefaults.filterChipColors(containerColor = AppColors.Surface),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true, selected = false,
-                            borderColor = AppColors.BorderSoft, borderWidth = 1.dp
-                        ),
-                        shape  = AppShape.Pill
-                    )
+                        }
+                        // Dégradé droit permanent — signale que la liste défile
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, fadeColor),
+                                startX = size.width - 48.dp.toPx(), endX = size.width
+                            )
+                        )
+                    }
+            ) {
+                LazyRow(
+                    state = chipListState,
+                    contentPadding = PaddingValues(horizontal = AppSpacing.SM),
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM)
+                ) {
+                    items(RoomType.entries) { type ->
+                        FilterChip(
+                            selected = false,
+                            onClick  = {
+                                val slot = ROOM_SLOTS.getOrElse(rooms.size % ROOM_SLOTS.size) { ROOM_SLOTS[0] }
+                                val shift = (rooms.size / ROOM_SLOTS.size) * 0.03f
+                                val bounds = RoomBounds(
+                                    left   = (slot.left   + shift).coerceIn(0f, 0.9f),
+                                    top    = (slot.top    + shift).coerceIn(0f, 0.9f),
+                                    right  = (slot.right  + shift).coerceIn(0.1f, 1f),
+                                    bottom = (slot.bottom + shift).coerceIn(0.1f, 1f)
+                                )
+                                onUpdate(rooms + CanvasRoom(type = type, bounds = bounds))
+                            },
+                            label  = { Text(type.displayName, style = AppType.ControlLabel) },
+                            colors = FilterChipDefaults.filterChipColors(containerColor = AppColors.Surface),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true, selected = false,
+                                borderColor = AppColors.BorderSoft, borderWidth = 1.dp
+                            ),
+                            shape  = AppShape.Pill
+                        )
+                    }
                 }
             }
 
