@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
@@ -71,6 +73,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -82,6 +85,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -104,6 +108,10 @@ import com.wifiaudit.app.domain.model.SavedPlan
 import com.wifiaudit.app.presentation.AuditCreationViewModel
 import com.wifiaudit.app.presentation.screen.common.StepHeader
 import com.wifiaudit.app.presentation.screen.common.planBackdrop
+import com.wifiaudit.app.presentation.screen.common.rememberPressedScale
+import com.wifiaudit.app.presentation.screen.common.rememberReducedMotion
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.wifiaudit.app.presentation.theme.AppColors
 import com.wifiaudit.app.presentation.theme.AppShape
 import com.wifiaudit.app.presentation.theme.AppSpacing
@@ -329,6 +337,7 @@ private fun HomeHeader() {
 
 @Composable
 private fun HeroNewDiagnosticCard(onStart: () -> Unit) {
+    val (heroScale, heroSource) = rememberPressedScale()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,7 +368,10 @@ private fun HeroNewDiagnosticCard(onStart: () -> Unit) {
         }
         Button(
             onClick = onStart,
-            modifier = Modifier.fillMaxWidth(),
+            interactionSource = heroSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { scaleX = heroScale; scaleY = heroScale },
             shape = AppShape.Pill,
             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
             elevation = ButtonDefaults.buttonElevation(0.dp)
@@ -749,6 +761,28 @@ private fun RoomCanvas(
     val latestRooms    = rememberUpdatedState(rooms)
     val latestOnUpdate = rememberUpdatedState(onUpdate)
 
+    // Scale-in stagger: each new room grows from 0.82 → 1.0, 40 ms apart.
+    val reducedMotion = rememberReducedMotion()
+    val scaleMap = remember { mutableStateMapOf<String, Animatable<Float, *>>() }
+    LaunchedEffect(rooms.map { it.id }.toString()) {
+        val currentIds = rooms.map { it.id }.toSet()
+        // Remove stale entries (deleted rooms).
+        scaleMap.keys.toSet().minus(currentIds).forEach { scaleMap.remove(it) }
+        // Animate newly added rooms.
+        rooms.forEachIndexed { index, room ->
+            if (!scaleMap.containsKey(room.id)) {
+                val anim = Animatable(if (reducedMotion) 1f else 0.82f)
+                scaleMap[room.id] = anim
+                if (!reducedMotion) {
+                    launch {
+                        delay(index * 40L)
+                        anim.animateTo(1f, tween(120))
+                    }
+                }
+            }
+        }
+    }
+
     Box(
         modifier = modifier
             .onSizeChanged { canvasSize = it }
@@ -782,11 +816,13 @@ private fun RoomCanvas(
                 val tPx = (room.bounds.top    * canvasSize.height).toInt()
                 val wDp = with(density) { ((room.bounds.right  - room.bounds.left) * canvasSize.width).toDp() }
                 val hDp = with(density) { ((room.bounds.bottom - room.bounds.top)  * canvasSize.height).toDp() }
+                val roomScale = scaleMap[room.id]?.value ?: 1f
 
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(lPx, tPx) }
                         .size(wDp, hDp)
+                        .graphicsLayer { scaleX = roomScale; scaleY = roomScale }
                         .background(color.copy(alpha = if (isSelected) 0.20f else 0.12f), AppShape.Medium)
                         .border(if (isSelected) 2.dp else 1.dp,
                                 if (isSelected) color else color.copy(alpha = 0.45f),

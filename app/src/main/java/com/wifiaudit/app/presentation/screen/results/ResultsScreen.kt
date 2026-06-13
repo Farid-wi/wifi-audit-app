@@ -39,12 +39,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import com.wifiaudit.app.presentation.screen.common.rememberPressedScale
+import com.wifiaudit.app.presentation.screen.common.rememberReducedMotion
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.border
@@ -183,6 +193,8 @@ fun ResultsScreen(
         }
 
         // ─── Boutons d'action ─────────────────────────────────────────────
+        val submitEnabled = uiState.submitState != SubmitState.Loading && uiState.submitState != SubmitState.Success
+        val (submitScale, submitSource) = rememberPressedScale(enabled = submitEnabled)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -191,11 +203,14 @@ fun ResultsScreen(
         ) {
             Button(
                 onClick = { viewModel.submitAudit() },
-                modifier = Modifier.fillMaxWidth(),
+                interactionSource = submitSource,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { scaleX = submitScale; scaleY = submitScale },
                 shape = AppShape.Pill,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
                 elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp),
-                enabled = uiState.submitState != SubmitState.Loading && uiState.submitState != SubmitState.Success
+                enabled = submitEnabled
             ) {
                 if (uiState.submitState == SubmitState.Loading) {
                     CircularProgressIndicator(
@@ -599,17 +614,32 @@ private fun LegendItem(color: Color, label: String) {
 
 @Composable
 private fun OverallScoreCard(score: OverallScore, modifier: Modifier = Modifier) {
+    val reducedMotion = rememberReducedMotion()
     val (bg, textColor, icon) = when (score) {
         OverallScore.GOOD -> Triple(Color(0xFFE1F5EE), Color(0xFF085041), Icons.Outlined.CheckCircle)
         OverallScore.FAIR -> Triple(Color(0xFFFAEEDA), Color(0xFF633806), Icons.Outlined.Info)
         OverallScore.POOR -> Triple(Color(0xFFFCEBEB), Color(0xFF791F1F), Icons.Outlined.Warning)
     }
 
-    val progress = when (score) {
+    val targetProgress = when (score) {
         OverallScore.GOOD -> 1f
         OverallScore.FAIR -> 0.66f
         OverallScore.POOR -> 0.33f
     }
+
+    // Ring animates from 0 → target after a brief settle delay.
+    var animTarget by remember { mutableStateOf(if (reducedMotion) targetProgress else 0f) }
+    LaunchedEffect(targetProgress) {
+        if (!reducedMotion) {
+            delay(300)
+            animTarget = targetProgress
+        }
+    }
+    val animatedProgress by animateFloatAsState(
+        targetValue   = animTarget,
+        animationSpec = tween(durationMillis = 900),
+        label         = "scoreRing"
+    )
 
     Row(
         modifier = modifier
@@ -626,9 +656,9 @@ private fun OverallScoreCard(score: OverallScore, modifier: Modifier = Modifier)
         // Score visuel : anneau de progression par niveau, icône au centre.
         Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxSize(),
-                color = textColor,
+                progress  = { animatedProgress },
+                modifier  = Modifier.fillMaxSize(),
+                color     = textColor,
                 trackColor = textColor.copy(alpha = 0.15f),
                 strokeWidth = 4.dp
             )
@@ -642,12 +672,28 @@ private fun OverallScoreCard(score: OverallScore, modifier: Modifier = Modifier)
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RoomBadgesGrid(rooms: List<RoomResult>, modifier: Modifier = Modifier) {
+    val reducedMotion = rememberReducedMotion()
     FlowRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.SM),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.SM)
     ) {
-        rooms.forEach { room -> RoomBadge(room = room) }
+        rooms.forEachIndexed { index, room ->
+            // Each badge fades + scales in with a 60 ms stagger.
+            var visible by remember(room.name) { mutableStateOf(reducedMotion) }
+            LaunchedEffect(room.name) {
+                if (!reducedMotion) {
+                    delay(index * 60L)
+                    visible = true
+                }
+            }
+            AnimatedVisibility(
+                visible = visible,
+                enter   = fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.85f)
+            ) {
+                RoomBadge(room = room)
+            }
+        }
     }
 }
 
